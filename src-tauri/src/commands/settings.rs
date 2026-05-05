@@ -1,12 +1,12 @@
 use base64::{engine::general_purpose, Engine as _};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::AppHandle;
+use tauri::manager::AppHandle;
 
 fn data_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".rpworld")
+        .join(".darkspark")
 }
 
 fn path_to_data_url(path: &Path) -> Option<String> {
@@ -132,7 +132,7 @@ pub fn delete_builtin_modpack(modpack_name: String) -> Result<(), String> {
 
 
 #[tauri::command]
-pub async fn delete_launcher(app: AppHandle) -> Result<(), String> {
+pub fn delete_launcher(app: AppHandle) -> Result<(), String> {
     let dir = data_dir();
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("Не удалось удалить данные: {e}"))?;
@@ -141,7 +141,7 @@ pub async fn delete_launcher(app: AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         let uninstall_keys = [
-            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\com.rpworld.launcher_is1",
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1"
             r"Software\Microsoft\Windows\CurrentVersion\Uninstall\RPWorld Launcher_is1",
         ];
 
@@ -162,5 +162,4 @@ pub async fn delete_launcher(app: AppHandle) -> Result<(), String> {
     }
 
     app.exit(0);
-    Ok(())
 }

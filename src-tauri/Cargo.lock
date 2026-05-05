@@ -581,6 +581,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "darkspark-launcher"
+version = "2.70.1"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "futures-util",
+ "hex",
+ "open",
+ "raw-window-handle",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-http",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tokio",
+ "urlencoding",
+ "uuid",
+ "windows 0.58.0",
+ "winreg 0.52.0",
+ "zip",
+]
+
+[[package]]
 name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3325,36 +3355,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rpw-launcher"
-version = "2.70.1"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "futures-util",
- "hex",
- "open",
- "raw-window-handle",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha1",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-http",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tokio",
- "urlencoding",
- "uuid",
- "windows 0.58.0",
- "winreg 0.52.0",
- "zip",
 ]
 
 [[package]]

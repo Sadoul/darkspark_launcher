@@ -45,7 +45,7 @@ fn default_enabled() -> bool { true }
 fn launcher_data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".rpworld")
+        .join(".darkspark")
 }
 
 fn download_dir_file() -> PathBuf {

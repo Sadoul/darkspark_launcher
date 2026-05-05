@@ -35,13 +35,13 @@ pub struct UpdateProgress {
     pub message: String,
 }
 
-const GITHUB_REPO: &str = "Sadoul/rpwlauncher";
+const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".rpworld")
+        .join(".darkspark")
 }
 
 
@@ -85,7 +85,7 @@ pub fn check_just_updated() -> bool {
 }
 
 fn update_log_path() -> PathBuf {
-    std::env::temp_dir().join("rpw_update.log")
+    std::env::temp_dir().join("darkspark_update.log")
 }
 
 fn update_log(message: &str) {
@@ -125,7 +125,7 @@ pub async fn check_launcher_update() -> Result<UpdateInfo, String> {
     launcher_log(&format!("[updater] Checking for updates. Current version: {}", CURRENT_VERSION));
 
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/1.0")
+        .user_agent("DarkSparkLauncher/1.0")
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;

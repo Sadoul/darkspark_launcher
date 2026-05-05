@@ -241,7 +241,7 @@ pub struct CustomModpackManifest {
 fn custom_modpacks_root() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".rpworld")
+        .join(".darkspark")
         .join("modpacks")
 }
 

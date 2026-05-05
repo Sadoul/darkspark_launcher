@@ -32,7 +32,7 @@ pub struct ModpackInfo {
 fn get_modpacks_dir() -> PathBuf {
     let dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".rpworld")
+        .join(".darkspark")
         .join("modpacks");
     fs::create_dir_all(&dir).ok();
     dir

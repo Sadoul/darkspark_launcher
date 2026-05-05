@@ -3,7 +3,7 @@
 ; ============================================================
 !macro NSIS_HOOK_PREINSTALL
   ; Still silent uninstall
-  ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.rpworld.launcher_is1" "UninstallString"
+  ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1" "UninstallString"
   ${If} $R0 != ""
     ExecWait '"$R0" /S _?=$INSTDIR'
   ${EndIf}

@@ -37,14 +37,15 @@
     "active": true,
     "targets": ["nsis"],
     "icon": [
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "nsis/installer-hooks.nsh",
         "displayLanguageSelector": false,
-      "startMenuFolder": "DarkSpark Launcher"
+        "startMenuFolder": "DarkSpark Launcher"
       }
     }
   }
