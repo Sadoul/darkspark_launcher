@@ -1,0 +1,149 @@
+name: Build and Release RPW Launcher
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# ─────────────────────────────────────────────────────────────
+# CI используется как fallback — если релиз уже опубликован
+# локальным скриптом release.ps1, все jobs пропускаются.
+# Параллельные jobs:
+#   1. check      — проверяет, нужна ли сборка
+#   2. build-main — Tauri NSIS installer  (~6-8 min with cache)
+#   3. build-stub — plain Rust exe        (~90 sec with cache)
+#   4. release    — publish both to GitHub Releases
+# ─────────────────────────────────────────────────────────────
+
+jobs:
+  # ── 0. Check — пропускаем если релиз уже опубликован ────────
+  check:
+    name: Check if release already exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check existing release
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.ref_name }}
+          STATUS=$(gh release view "$TAG" --repo ${{ github.repository }} 2>&1 || true)
+          if echo "$STATUS" | grep -q "assets:"; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Release $TAG already has assets — skipping CI build"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Release $TAG has no assets — CI will build"
+          fi
+
+  # ── 1. Main Tauri app (NSIS installer) ──────────────────────
+  build-main:
+    name: Build Main App
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+          shared-key: main-v2
+
+      - name: Install npm deps
+        run: npm ci
+
+      - name: Generate icons from launcher.png
+        run: npx @tauri-apps/cli icon images/icons/launcher.png
+
+      - name: Build Tauri app (NSIS)
+        run: npm run tauri build -- --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: main-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 1
+
+  # ── 2. Stub — tiny plain Rust exe (~400 KB, ~90 sec) ────────
+  build-stub:
+    name: Build Stub (plain Rust)
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: stub-rs -> target
+          cache-on-failure: true
+          shared-key: stub-v2
+
+      - name: Build stub exe
+        working-directory: stub-rs
+        run: cargo build --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stub-exe
+          path: stub-rs/target/release/RPWorld-Launcher.exe
+          retention-days: 1
+
+  # ── 3. Publish release ──────────────────────────────────────
+  release:
+    name: Publish Release
+    needs: [check, build-main, build-stub]
+    if: needs.check.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: main-installer
+          path: dist/main
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: stub-exe
+          path: dist/stub
+
+      - name: List artifacts
+        run: ls -R dist/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "RPWorld Launcher ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/main/*.exe
+            dist/stub/RPWorld-Launcher.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
