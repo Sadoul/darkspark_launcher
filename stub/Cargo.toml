@@ -1,0 +1,13 @@
+[package]
+name = "rpw-stub"
+version = "1.0.1"
+edition = "2021"
+description = "RPWorld Launcher stub - installer and shortcut in one"
+
+[[bin]]
+name = "RPWorld-Launcher"
+path = "src/main.rs"
+
+[dependencies]
+# No external HTTP deps - we use curl.exe (built into Windows 10+)
+# and Windows API for process/UI

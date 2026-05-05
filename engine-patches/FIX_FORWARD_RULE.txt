@@ -1,0 +1,11 @@
+# CRITICAL RULE: FIX FORWARD, NEVER ROLLBACK
+# User instruction: "НО ЗАПИШИ СЕБЕ, что если сломается, то мы не откатываем а чиним до конца."
+
+IF ANY PATCH BREAKS:
+1. DO NOT revert the patch
+2. DO NOT restore previous version
+3. ANALYZE the crash/error
+4. FIX the patch until it works
+5. Deploy the fixed version
+
+NO ROLLBACKS. EVER. FIX FORWARD.

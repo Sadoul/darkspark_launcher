@@ -1,0 +1,1 @@
+v2.11.0 fix stale update marker custom taskbar icon verbose updater logs
