@@ -118,7 +118,7 @@ export default function UpdateOverlay({ updateInfo, theme }: UpdateOverlayProps)
           />
           <img
             src="/icons/Inside.png"
-            alt="RPWorld"
+            alt="DarkSpark"
             className="update-launcher-icon"
           />
         </div>

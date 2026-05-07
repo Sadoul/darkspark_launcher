@@ -222,7 +222,7 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> R
 
 fn build_repo_for_modpack(name: &str) -> Option<&'static str> {
     match name.to_lowercase().as_str() {
-        "rpworld" => Some("Sadoul/rpworld"),
+        "darkspark" => Some("Sadoul/rpworld"),
         "minigames" => Some("Sadoul/minigames"),
         _ => None,
     }
@@ -825,7 +825,7 @@ pub async fn launch_game(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/2.10")
+        .user_agent("DarkSparkLauncher/2.10")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| e.to_string())?;
@@ -1135,7 +1135,7 @@ pub async fn launch_game(
                     let replaced = s
                         .replace("${classpath}", &classpath)
                         .replace("${natives_directory}", &natives_dir.to_string_lossy())
-                        .replace("${launcher_name}", "RPWLauncher")
+                        .replace("${launcher_name}", "DarkSparkLauncher")
                         .replace("${launcher_version}", "2.10")
                         .replace("${library_directory}", &mc_dir.join("libraries").to_string_lossy())
                         .replace("${classpath_separator}", ";");
@@ -1170,7 +1170,7 @@ pub async fn launch_game(
             .replace("${auth_uuid}", &uuid)
             .replace("${auth_access_token}", &access_token)
             .replace("${user_type}", "mojang")
-            .replace("${version_type}", "RPWLauncher");
+            .replace("${version_type}", "DarkSparkLauncher");
         args.extend(game_args.split_whitespace().map(|s| s.to_string()));
     } else {
         log("[launch] Using modern arguments.game format");
@@ -1206,7 +1206,7 @@ pub async fn launch_game(
                         .replace("${auth_xuid}", "")
                         .replace("${user_properties}", "{}")
                         .replace("${user_type}", "mojang")
-                        .replace("${version_type}", "RPWLauncher");
+                        .replace("${version_type}", "DarkSparkLauncher");
                     args.push(replaced);
                 }
             }

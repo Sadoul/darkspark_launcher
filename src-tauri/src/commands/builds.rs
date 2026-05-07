@@ -7,7 +7,7 @@ use std::io::Write;
 
 
 const BUILD_BRANCH: &str = "main";
-const USER_AGENT: &str = "RPWLauncher-BuildAdmin";
+const USER_AGENT: &str = "DarkSparkLauncher-BuildAdmin";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BuildManifest {
@@ -55,7 +55,7 @@ fn download_dir_file() -> PathBuf {
 fn default_download_dir() -> PathBuf {
     dirs::download_dir()
         .unwrap_or_else(|| launcher_data_dir())
-        .join("RPWorld Downloads")
+        .join("DarkSpark Downloads")
 }
 
 fn read_download_dir() -> PathBuf {
@@ -80,7 +80,7 @@ fn safe_file_name(name: &str) -> String {
 
 fn repo_for_build(build: &str) -> Result<&'static str, String> {
     match build.to_lowercase().as_str() {
-        "rpworld" => Ok("Sadoul/rpworld"),
+        "darkspark" => Ok("Sadoul/rpworld"),
         "minigames" => Ok("Sadoul/minigames"),
         _ => Err(format!("Неизвестная сборка: {build}")),
     }
@@ -176,7 +176,7 @@ fn default_manifest(build: &str) -> BuildManifest {
             mods: vec![],
         },
         _ => BuildManifest {
-            name: "rpworld".to_string(),
+            name: "darkspark".to_string(),
             minecraft_version: "1.20.1".to_string(),
             loader: "forge".to_string(),
             loader_version: String::new(),

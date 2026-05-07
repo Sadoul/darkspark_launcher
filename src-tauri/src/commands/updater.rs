@@ -199,7 +199,7 @@ pub async fn check_launcher_update() -> Result<UpdateInfo, String> {
     }
 
     let raw_notes = release["body"].as_str().unwrap_or("").trim();
-    let release_notes = if raw_notes.is_empty() || raw_notes.contains("Full Changelog") || raw_notes.contains("github.com/Sadoul/rpwlauncher/compare/") {
+    let release_notes = if raw_notes.is_empty() || raw_notes.contains("Full Changelog") || raw_notes.contains("github.com/Sadoul/darkspark_launcher/compare/") {
         format!("Обновление лаунчера до версии v{}", latest_clean)
     } else {
         raw_notes.to_string()
@@ -250,7 +250,7 @@ pub async fn update_launcher(app: tauri::AppHandle) -> Result<String, String> {
     emit("downloading", 0, info.file_size, 0, "Начало скачивания...");
 
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/1.0")
+        .user_agent("DarkSparkLauncher/1.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -266,7 +266,7 @@ pub async fn update_launcher(app: tauri::AppHandle) -> Result<String, String> {
 
     let total = response.content_length().unwrap_or(info.file_size);
     let temp_dir = std::env::temp_dir();
-    let download_path = temp_dir.join(format!("rpw-setup-{}.exe", info.latest_version));
+    let download_path = temp_dir.join(format!("darkspark-setup-{}.exe", info.latest_version));
     update_log(&format!("[updater] Download target: {}", download_path.display()));
 
     use futures_util::StreamExt;

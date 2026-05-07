@@ -18,7 +18,7 @@ struct McManifest {
 #[tauri::command]
 pub async fn get_mc_versions() -> Result<Vec<McVersion>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWorld-Launcher/2.0")
+        .user_agent("DarkSpark-Launcher/2.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -67,7 +67,7 @@ struct FabricLoaderInfo {
 
 async fn get_fabric_versions(mc_version: &str) -> Result<Vec<LoaderVersion>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWorld-Launcher/2.0")
+        .user_agent("DarkSpark-Launcher/2.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -102,7 +102,7 @@ struct ForgePromoSlim {
 
 async fn get_forge_versions(mc_version: &str) -> Result<Vec<LoaderVersion>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWorld-Launcher/2.0")
+        .user_agent("DarkSpark-Launcher/2.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -157,7 +157,7 @@ struct NeoForgeApiResponse {
 
 async fn get_neoforge_versions(mc_version: &str) -> Result<Vec<LoaderVersion>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWorld-Launcher/2.0")
+        .user_agent("DarkSpark-Launcher/2.0")
         .build()
         .map_err(|e| e.to_string())?;
 

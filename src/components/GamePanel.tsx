@@ -43,11 +43,11 @@ interface ModpackConfig {
 }
 
 const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
-  rpworld: {
-    title: "RPWorld",
+  darkspark: {
+    title: "DarkSpark",
     description: "Погрузитесь в мир ролевых приключений на Forge 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
     githubRepo: "Sadoul/rpworld",
-    modpackName: "rpworld",
+    modpackName: "darkspark",
     defaultVersion: "forge-1.20.1",
     mcVersion: "1.20.1",
     bg: ["/backgrounds/rpworld.jpg", "/backgrounds/rpworld2.jpg"],
@@ -96,7 +96,7 @@ export default function GamePanel({
     defaultVersion: customPack.loader === "vanilla" ? customPack.mc_version : `${customPack.loader}-${customPack.mc_version}`,
     mcVersion: customPack.mc_version,
     bg: ["/backgrounds/custom.jpg"],
-  } : (MODPACK_CONFIGS[page] || MODPACK_CONFIGS.rpworld);
+  } : (MODPACK_CONFIGS[page] || MODPACK_CONFIGS.darkspark);
 
 
   const bgImage = useMemo(() => {

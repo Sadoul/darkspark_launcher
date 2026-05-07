@@ -34,7 +34,7 @@ interface Props {
 
 
 const ADMIN_NAME = "Sadoul";
-const BUILD_NAMES = ["rpworld", "minigames"];
+const BUILD_NAMES = ["darkspark", "minigames"];
 const LOADERS = ["vanilla", "forge", "fabric", "neoforge", "optifine"];
 
 const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(1)} МБ`;
@@ -52,7 +52,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [activeBuild, setActiveBuild] = useState("rpworld");
+  const [activeBuild, setActiveBuild] = useState("darkspark");
   const [manifest, setManifest] = useState<BuildManifest | null>(null);
   const [uploadingMod, setUploadingMod] = useState(false);
   const [modSearch, setModSearch] = useState("");
@@ -381,7 +381,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
         {isOwner && (
           <button className={`admin-main-tab ${activeTab === "builds" ? "active" : ""}`} onClick={() => setActiveTab("builds")}>
             <span>Сборки</span>
-            <small>RPWorld и MiniGames: моды, версия, loader</small>
+            <small>DarkSpark и MiniGames: моды, версия, loader</small>
           </button>
         )}
 
@@ -402,7 +402,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
         <>
           <div className="admin-note">
             Здесь можно менять пароли, добавлять игроков и удалять старых. После подтверждения лаунчер сам зашифрует
-            <b> public/auth/offline_accounts.rpwenc</b> и отправит commit в GitHub.
+            <b> public/auth/offline_accounts.darksparkenc</b> и отправит commit в GitHub.
           </div>
 
           <div className="admin-add-box">
@@ -449,7 +449,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
           <div className="admin-build-tabs">
             {BUILD_NAMES.map(build => (
               <button key={build} className={`admin-build-tab ${activeBuild === build ? "active" : ""}`} onClick={() => setActiveBuild(build)}>
-                {build === "rpworld" ? "RPWorld" : "MiniGames"}
+                {build === "darkspark" ? "DarkSpark" : "MiniGames"}
               </button>
             ))}
           </div>

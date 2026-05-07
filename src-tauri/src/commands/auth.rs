@@ -140,7 +140,7 @@ fn encrypt_accounts_payload(accounts: &OfflineCredentialFile) -> Result<String, 
 async fn load_accounts() -> Result<OfflineCredentialFile, String> {
     launcher_log("[accounts] load_accounts: starting");
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/Accounts")
+        .user_agent("DarkSparkLauncher/Accounts")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -257,7 +257,7 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
     }
     let credentials = load_accounts().await?;
     if credentials.accounts.iter().any(|account| account.username.eq_ignore_ascii_case(&username)) {
-        return Err("Этот ник занят RPWorld аккаунтом. Используйте вход RPWorld аккаунт.".to_string());
+        return Err("Этот ник занят DarkSpark аккаунтом. Используйте вход DarkSpark аккаунт.".to_string());
     }
 
     let account = Account {
@@ -275,14 +275,14 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
 }
 
 #[tauri::command]
-pub async fn login_rpworld(username: String, password: String) -> Result<Account, String> {
+pub async fn login_darkspark(username: String, password: String) -> Result<Account, String> {
     let username = username.trim().to_string();
     let credentials = load_accounts().await?;
     let expected = credentials
         .accounts
         .iter()
         .find(|account| account.username.eq_ignore_ascii_case(&username))
-        .ok_or_else(|| "Аккаунт не найден в списке RPWorld".to_string())?;
+        .ok_or_else(|| "Аккаунт не найден в списке DarkSpark".to_string())?;
 
     if expected.password != password {
         return Err("Неверный пароль".to_string());
@@ -433,7 +433,7 @@ pub async fn commit_admin_accounts(
 
     let encrypted = encrypt_accounts_payload(&credential_file)?;
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher-AdminPanel")
+        .user_agent("DarkSparkLauncher-AdminPanel")
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;

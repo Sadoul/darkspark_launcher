@@ -419,7 +419,7 @@ export default function SettingsPanel({
       
       <Section title="Данные лаунчера">
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
-          Все данные хранятся в: <code style={{ opacity: 0.8 }}>%APPDATA%\.rpworld</code>
+          Все данные хранятся в: <code style={{ opacity: 0.8 }}>%APPDATA%\.darkspark</code>
         </div>
         <Btn onClick={handleOpenDataFolder}>Открыть папку данных</Btn>
       </Section>
@@ -474,7 +474,7 @@ export default function SettingsPanel({
       
       <Section title="Удаление лаунчера" danger>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 10 }}>
-          Удалит все данные лаунчера, модпаки и Java из <code>%APPDATA%\.rpworld</code>, затем запустит деинсталляцию.
+          Удалит все данные лаунчера, модпаки и Java из <code>%APPDATA%\.darkspark</code>, затем запустит деинсталляцию.
         </div>
         <motion.button
           className={`delete-btn ${deleteConfirm ? "confirm" : ""}`}

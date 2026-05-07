@@ -664,7 +664,7 @@ button { font-family: inherit; }
   border-color: rgba(0,230,118,0.15);
   color: var(--accent-green);
 }
-.auth-method-icon.rpworld-icon {
+.auth-method-icon.darkspark-icon {
   background: linear-gradient(135deg, rgba(255,181,70,0.16), rgba(255,181,70,0.05));
   color: #ffb546;
   border: 1px solid rgba(255,181,70,0.24);

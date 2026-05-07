@@ -1,8 +1,8 @@
 ; ============================================================
-; RPWorld Launcher - Custom NSIS Installer Hooks
+; DarkSpark Launcher - Custom NSIS Installer Hooks
 ; ============================================================
 !macro NSIS_HOOK_PREINSTALL
-  ; Still silent uninstall
+  ; Silent uninstall of previous versions
   ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1" "UninstallString"
   ${If} $R0 != ""
     ExecWait '"$R0" /S _?=$INSTDIR'
@@ -10,12 +10,8 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; --- Launch RPWorld Launcher exactly once after successful install ---
-  ; Duplicate windows are prevented by the app-level single-instance mutex.
-  IfFileExists "$INSTDIR\rpw-launcher.exe" 0 +3
-    ExecShell "open" "$INSTDIR\rpw-launcher.exe"
-    Goto done
-  IfFileExists "$INSTDIR\RPWorld Launcher.exe" 0 done
-    ExecShell "open" "$INSTDIR\RPWorld Launcher.exe"
+  ; Launch DarkSpark Launcher if already installed, otherwise first-install is done
+  IfFileExists "$INSTDIR\darkspark-launcher.exe" 0 done
+    ExecShell "open" "$INSTDIR\darkspark-launcher.exe"
   done:
 !macroend

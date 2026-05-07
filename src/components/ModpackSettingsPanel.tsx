@@ -4,7 +4,7 @@ import type { Page } from "./Sidebar";
 import type { CustomModpack } from "../App";
 
 const BUILTIN_CONFIGS: Record<string, { title: string; loader: string; mcVersion: string; loaderVersion: string; memory: number; jvmArgs: string }> = {
-  rpworld: { title: "darkspark", loader: "forge", mcVersion: "1.20.1", loaderVersion: "47.4.20", memory: 4096, jvmArgs: "" },
+  darkspark: { title: "DarkSpark", loader: "forge", mcVersion: "1.20.1", loaderVersion: "47.4.20", memory: 4096, jvmArgs: "" },
   minigames: { title: "Мини-игры", loader: "forge", mcVersion: "1.20.1", loaderVersion: "", memory: 4096, jvmArgs: "" },
 };
 

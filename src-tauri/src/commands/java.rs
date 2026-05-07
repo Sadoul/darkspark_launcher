@@ -113,7 +113,7 @@ fn get_java_version(java_path: &PathBuf) -> Option<String> {
 #[tauri::command]
 pub async fn download_java() -> Result<JavaInfo, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/1.0")
+        .user_agent("DarkSparkLauncher/1.0")
         .build()
         .map_err(|e| e.to_string())?;
 

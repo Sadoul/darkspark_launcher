@@ -48,7 +48,7 @@ pub async fn check_modpack_update(
     github_repo: String,
 ) -> Result<Option<ModpackInfo>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/1.0")
+        .user_agent("DarkSparkLauncher/1.0")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -136,7 +136,7 @@ pub async fn download_modpack(
     minecraft_version: String,
 ) -> Result<String, String> {
     let client = reqwest::Client::builder()
-        .user_agent("RPWLauncher/1.0")
+        .user_agent("DarkSparkLauncher/1.0")
         .build()
         .map_err(|e| e.to_string())?;
 

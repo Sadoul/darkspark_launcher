@@ -385,7 +385,7 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
         <motion.button
           className="sidebar-icon-btn"
           onClick={handleDiscord}
-          title="Discord сервер RPWorld"
+          title="Discord сервер DarkSpark"
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.93 }}
           style={{ flex: 1 }}
