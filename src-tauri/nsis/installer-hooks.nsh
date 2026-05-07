@@ -10,7 +10,7 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; Launch DarkSpark Launcher if already installed, otherwise first-install is done
+  ; Always launch the launcher after install/upgrade
   IfFileExists "$INSTDIR\darkspark-launcher.exe" 0 done
     ExecShell "open" "$INSTDIR\darkspark-launcher.exe"
   done:
