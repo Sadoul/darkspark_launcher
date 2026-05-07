@@ -155,7 +155,7 @@ async fn load_accounts() -> Result<OfflineCredentialFile, String> {
         }
     }
 
-    decrypt_accounts_payload(include_str!("../../../public/auth/offline_accounts.rpwenc"))
+    decrypt_accounts_payload(include_str!("../../../public/auth/offline_accounts.darksparkenc"))
 }
 
 fn is_owner(username: &str) -> bool {
