@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 const ACCOUNTS_KEY: &[u8] = b"DarkSparkLauncherFriendsOnlyKey_v1";
 const ADMIN_USERNAME: &str = "Sadoul";
-const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.rpwenc";
+const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.darksparkenc";
 const ACCOUNTS_BRANCH: &str = "main";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -98,7 +98,7 @@ pub async fn save_theme(theme: String) -> Result<(), String> {
 }
 
 fn get_accounts_cache_file() -> PathBuf {
-    get_config_dir().join("offline_accounts.rpwenc")
+    get_config_dir().join("offline_accounts.darksparkenc")
 }
 
 fn xor_bytes(data: &[u8]) -> Vec<u8> {
@@ -183,7 +183,7 @@ fn build_account(credential: &OfflineCredential) -> Account {
         username: credential.username.clone(),
         uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
         access_token: "0".to_string(),
-        account_type: "rpworld".to_string(),
+        account_type: "darkspark".to_string(),
         is_admin: owner || moderator,
         is_owner: owner,
         role: if owner { "owner".to_string() } else { credential.role.clone() },

@@ -338,7 +338,7 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
             >
               Настроить {contextMenu.item.id === "minigames" && <span className="context-lock"><IconLock /></span>}
             </button>
-            {(contextMenu.item.id === "rpworld" || contextMenu.item.id === "minigames") && (
+            {(contextMenu.item.id === "darkspark" || contextMenu.item.id === "minigames") && (
               <button
                 className="sidebar-context-item danger"
                 disabled={contextMenu.item.id === "minigames"}

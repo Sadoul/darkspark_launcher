@@ -123,16 +123,17 @@ export default function App() {
   }, []);
 
   const initializeApp = async () => {
+    setLoading(true);
     try {
-      const savedMemory = localStorage.getItem("rpw_memory");
-      const savedJavaPath = localStorage.getItem("rpw_java_path");
-      const savedJavaVersion = localStorage.getItem("rpw_java_version");
-      const savedJvmArgs = localStorage.getItem("rpw_jvm_args");
-      const savedGpuMode = localStorage.getItem("rpw_gpu_mode");
-      const savedTheme = localStorage.getItem("rpw_theme") as Theme | null;
-      const savedAllowMultipleInstances = localStorage.getItem("rpw_allow_multiple_instances");
-      const savedCloseLauncher = localStorage.getItem("rpw_close_launcher_on_game_start");
-      const savedReopenLauncher = localStorage.getItem("rpw_reopen_launcher_after_game_close");
+      const savedMemory = localStorage.getItem("darkspark_memory");
+      const savedJavaPath = localStorage.getItem("darkspark_java_path");
+      const savedJavaVersion = localStorage.getItem("darkspark_java_version");
+      const savedJvmArgs = localStorage.getItem("darkspark_jvm_args");
+      const savedGpuMode = localStorage.getItem("darkspark_gpu_mode");
+      const savedTheme = localStorage.getItem("darkspark_theme") as Theme | null;
+      const savedAllowMultipleInstances = localStorage.getItem("darkspark_allow_multiple_instances");
+      const savedCloseLauncher = localStorage.getItem("darkspark_close_launcher_on_game_start");
+      const savedReopenLauncher = localStorage.getItem("darkspark_reopen_launcher_after_game_close");
 
       if (savedMemory) { const m = parseInt(savedMemory); if (!isNaN(m)) setMaxMemory(Math.max(1024, Math.min(16384, m))); }
       if (savedJavaPath) setJavaPath(savedJavaPath);
@@ -146,7 +147,7 @@ export default function App() {
 
       await loadCustomModpacks();
 
-      const loggingEnabled = localStorage.getItem("rpw_logging") !== "false";
+      const loggingEnabled = localStorage.getItem("darkspark_logging") !== "false";
       try { await invoke("set_logging_enabled", { enabled: loggingEnabled }); } catch (e) {
         // error ignored
       }
@@ -160,19 +161,20 @@ export default function App() {
 
       if (!savedJavaPath) {
         try { const j = await invoke<JavaInfo>("find_java"); if (j.found) handleJavaChange(j.path, j.version); } catch (e) {
-        // error ignored
-      }
+          // error ignored
+        }
       }
 
-      try {
-
-        const justUpdated = await invoke<boolean>("check_just_updated").catch(() => false);
-        if (!justUpdated) {
+      const justUpdated = await invoke<boolean>("check_just_updated").catch(() => false);
+      if (!justUpdated) {
+        try {
           const updateInfo = await invoke<UpdateInfo>("check_launcher_update");
           if (updateInfo.update_available) setPendingUpdate(updateInfo);
+        } catch (e) {
+          console.error("Update check failed:", e);
         }
-          }
-      } catch (e) {
+      }
+    } catch (e) {
       console.error("Init failed:", e);
     } finally {
       setLoading(false);
@@ -193,7 +195,7 @@ export default function App() {
     try {
       await invoke("delete_custom_modpack", { name });
       await loadCustomModpacks();
-      setCurrentPage("rpworld");
+      setCurrentPage("darkspark");
       showNotification(`Модпак «${name}» удалён`);
     } catch (e) {
       showNotification(String(e));
@@ -201,8 +203,8 @@ export default function App() {
   };
 
   const deleteBuiltinModpack = async (page: Page) => {
-    if (page !== "rpworld" && page !== "minigames") return;
-    const title = page === "rpworld" ? "RPWorld" : "Мини-игры";
+    if (page !== "darkspark" && page !== "minigames") return;
+    const title = page === "darkspark" ? "darkspark" : "Мини-игры";
     if (!confirm(`Удалить установленную сборку «${title}» с компьютера? Лаунчер останется.`)) return;
     try {
       await invoke("delete_builtin_modpack", { modpackName: page });
@@ -410,7 +412,7 @@ export default function App() {
             ) : (
               <GamePanel
                 key="fallback"
-                page="rpworld"
+                page="darkspark"
                 account={account}
                 javaPath={javaPath}
                 maxMemory={maxMemory}
@@ -426,7 +428,7 @@ export default function App() {
       </div>
 
       <AnimatePresence>
-        {globalLaunchProgress && currentPage !== "rpworld" && currentPage !== "minigames" && !currentPage.startsWith("custom:") && (
+        {globalLaunchProgress && currentPage !== "darkspark" && currentPage !== "minigames" && !currentPage.startsWith("custom:") && (
           <motion.div
             className="global-launch-progress"
             initial={{ opacity: 0, y: 16 }}
