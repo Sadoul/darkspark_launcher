@@ -110,12 +110,18 @@ fn xor_bytes(data: &[u8]) -> Vec<u8> {
 
 fn decrypt_accounts_payload(encrypted: &str) -> Result<OfflineCredentialFile, String> {
     let compact = encrypted.trim().replace(['\r', '\n', ' '], "");
+    if compact.is_empty() {
+        return Err("Пустой файл аккаунтов".to_string());
+    }
     let encrypted_bytes = general_purpose::STANDARD
         .decode(compact)
         .map_err(|e| format!("Не удалось прочитать файл аккаунтов: {e}"))?;
     let json_bytes = xor_bytes(&encrypted_bytes);
     let json = String::from_utf8(json_bytes)
         .map_err(|e| format!("Файл аккаунтов повреждён: {e}"))?;
+    if json.trim().is_empty() {
+        return Err("Файл аккаунтов повреждён: пустые данные".to_string());
+    }
     serde_json::from_str(&json).map_err(|e| format!("Ошибка JSON аккаунтов: {e}"))
 }
 
