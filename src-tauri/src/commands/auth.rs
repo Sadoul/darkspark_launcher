@@ -1,5 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
+
+use super::logger::log as launcher_log;
 use std::fs;
 use std::path::PathBuf;
 
@@ -111,17 +113,22 @@ fn xor_bytes(data: &[u8]) -> Vec<u8> {
 fn decrypt_accounts_payload(encrypted: &str) -> Result<OfflineCredentialFile, String> {
     let compact = encrypted.trim().replace(['\r', '\n', ' '], "");
     if compact.is_empty() {
+        launcher_log("[accounts] decrypt_accounts_payload: empty input");
         return Err("Пустой файл аккаунтов".to_string());
     }
+    launcher_log(&format!("[accounts] decrypt_accounts_payload: input len={}", compact.len()));
     let encrypted_bytes = general_purpose::STANDARD
         .decode(compact)
         .map_err(|e| format!("Не удалось прочитать файл аккаунтов: {e}"))?;
     let json_bytes = xor_bytes(&encrypted_bytes);
+    launcher_log(&format!("[accounts] decrypt_accounts_payload: after xor len={}", json_bytes.len()));
     let json = String::from_utf8(json_bytes)
         .map_err(|e| format!("Файл аккаунтов повреждён: {e}"))?;
     if json.trim().is_empty() {
+        launcher_log("[accounts] decrypt_accounts_payload: json is empty after utf8");
         return Err("Файл аккаунтов повреждён: пустые данные".to_string());
     }
+    launcher_log(&format!("[accounts] decrypt_accounts_payload: json preview={}", &json[..json.len().min(100)]));
     serde_json::from_str(&json).map_err(|e| format!("Ошибка JSON аккаунтов: {e}"))
 }
 
@@ -131,6 +138,7 @@ fn encrypt_accounts_payload(accounts: &OfflineCredentialFile) -> Result<String, 
 }
 
 async fn load_accounts() -> Result<OfflineCredentialFile, String> {
+    launcher_log("[accounts] load_accounts: starting");
     let client = reqwest::Client::builder()
         .user_agent("RPWLauncher/Accounts")
         .timeout(std::time::Duration::from_secs(10))
@@ -144,11 +152,14 @@ async fn load_accounts() -> Result<OfflineCredentialFile, String> {
         .await;
 
     if let Ok(response) = remote {
+        launcher_log(&format!("[accounts] load_accounts: remote status={}", response.status()));
         if response.status().is_success() {
             if let Ok(file) = response.json::<GitHubContentResponse>().await {
                 let encrypted = file.content.replace(['\r', '\n', ' '], "");
+                launcher_log(&format!("[accounts] load_accounts: github content len={}", encrypted.len()));
                 if let Ok(accounts) = decrypt_accounts_payload(&encrypted) {
                     let _ = fs::write(get_accounts_cache_file(), encrypted);
+                    launcher_log("[accounts] load_accounts: success from github");
                     return Ok(accounts);
                 }
             }
@@ -156,11 +167,14 @@ async fn load_accounts() -> Result<OfflineCredentialFile, String> {
     }
 
     if let Ok(cached) = fs::read_to_string(get_accounts_cache_file()) {
+        launcher_log(&format!("[accounts] load_accounts: cache found len={}", cached.len()));
         if let Ok(accounts) = decrypt_accounts_payload(&cached) {
+            launcher_log("[accounts] load_accounts: success from cache");
             return Ok(accounts);
         }
     }
 
+    launcher_log("[accounts] load_accounts: falling back to embedded");
     decrypt_accounts_payload(include_str!("../../../public/auth/offline_accounts.darksparkenc"))
 }
 
