@@ -3,7 +3,7 @@
 ; ============================================================
 !macro NSIS_HOOK_PREINSTALL
   ; Silent uninstall of previous versions
-  ReadRegStr $R0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1" "UninstallString"
+  ReadRegStr $R0 SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1" "UninstallString"
   ${If} $R0 != ""
     ExecWait '"$R0" /S _?=$INSTDIR'
   ${EndIf}
