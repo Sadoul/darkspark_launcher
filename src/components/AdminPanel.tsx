@@ -87,7 +87,9 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const loadDownloadDir = async () => {
     try {
       setDownloadDir(await invoke<string>("get_build_download_dir"));
-    } catch 
+    } catch (e) {
+        // error ignored
+      }
   };
 
 

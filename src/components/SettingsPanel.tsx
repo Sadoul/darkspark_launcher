@@ -111,7 +111,9 @@ export default function SettingsPanel({
   const handleToggleLogging = async (enabled: boolean) => {
     setLoggingEnabled(enabled);
     localStorage.setItem("rpw_logging", enabled ? "true" : "false");
-    try { await invoke("set_logging_enabled", { enabled }); } catch 
+    try { await invoke("set_logging_enabled", { enabled }); } catch (e) {
+        // error ignored
+      }
   };
 
   const handleViewLog = async () => {
@@ -129,7 +131,9 @@ export default function SettingsPanel({
   };
 
   const handleClearLog = async () => {
-    try { await invoke("clear_log"); setLogContent("(лог пустой)"); showToast("Лог очищен"); } catch 
+    try { await invoke("clear_log"); setLogContent("(лог пустой)"); showToast("Лог очищен"); } catch (e) {
+        // error ignored
+      }
   };
 
 
@@ -199,7 +203,9 @@ export default function SettingsPanel({
           setAvatarLoading(false);
         }
       }
-    } catch 
+    } catch (e) {
+        // error ignored
+      }
   };
 
 

@@ -115,7 +115,9 @@ export default function App() {
         const progress = await invoke<LaunchProgress | null>("get_launch_progress");
         if (progress && progress.stage !== "done") setGlobalLaunchProgress(progress);
         else if (progress?.stage === "done") setGlobalLaunchProgress(null);
-      } catch 
+      } catch (e) {
+        // error ignored
+      }
     }, 700);
     return () => window.clearInterval(timer);
   }, []);
@@ -145,15 +147,21 @@ export default function App() {
       await loadCustomModpacks();
 
       const loggingEnabled = localStorage.getItem("rpw_logging") !== "false";
-      try { await invoke("set_logging_enabled", { enabled: loggingEnabled }); } catch 
+      try { await invoke("set_logging_enabled", { enabled: loggingEnabled }); } catch (e) {
+        // error ignored
+      }
 
-      try { const dataUrl = await invoke<string | null>("get_avatar"); if (dataUrl) setAvatarUrl(dataUrl); } catch 
+      try { const dataUrl = await invoke<string | null>("get_avatar"); if (dataUrl) setAvatarUrl(dataUrl); } catch (e) {
+        // error ignored
+      }
 
       const savedAccount = await invoke<Account | null>("get_saved_account");
       if (savedAccount) setAccount(savedAccount);
 
       if (!savedJavaPath) {
-        try { const j = await invoke<JavaInfo>("find_java"); if (j.found) handleJavaChange(j.path, j.version); } catch 
+        try { const j = await invoke<JavaInfo>("find_java"); if (j.found) handleJavaChange(j.path, j.version); } catch (e) {
+        // error ignored
+      }
       }
 
       try {
@@ -163,8 +171,8 @@ export default function App() {
           const updateInfo = await invoke<UpdateInfo>("check_launcher_update");
           if (updateInfo.update_available) setPendingUpdate(updateInfo);
         }
-      } catch 
-    } catch (e) {
+          }
+      } catch (e) {
       console.error("Init failed:", e);
     } finally {
       setLoading(false);
@@ -175,7 +183,9 @@ export default function App() {
     try {
       const list = await invoke<CustomModpack[]>("get_custom_modpacks");
       setCustomModpacks(list);
-    } catch 
+    } catch (e) {
+        // error ignored
+      }
   };
 
   const deleteCustomModpack = async (name: string) => {
@@ -212,7 +222,9 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    try { await invoke("logout"); setAccount(null); showNotification("Вы вышли из аккаунта"); } catch 
+    try { await invoke("logout"); setAccount(null); showNotification("Вы вышли из аккаунта"); } catch (e) {
+        // error ignored
+      }
   };
 
   const handleJavaChange = (path: string, version: string) => {

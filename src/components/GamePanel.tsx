@@ -124,7 +124,9 @@ export default function GamePanel({
             }, 1500);
           }
         }
-      } catch 
+      } catch (e) {
+        // error ignored
+      }
 
 
       try {
@@ -145,12 +147,16 @@ export default function GamePanel({
             }
           }
         }
-      } catch 
+      } catch (e) {
+        // error ignored
+      }
 
 
       try {
         if (!cancelled) setGameRunning(await invoke<boolean>("is_game_running"));
-      } catch 
+      } catch (e) {
+        // error ignored
+      }
     };
 
     if (!config.locked) checkModpackUpdate();
@@ -228,7 +234,9 @@ export default function GamePanel({
             setTimeout(() => { setLaunching(false); setProgress(null); }, 2000);
           }
         }
-      } catch 
+      } catch (e) {
+        // error ignored
+      }
     }, 500);
 
     try {
@@ -263,7 +271,9 @@ export default function GamePanel({
     try {
       await invoke("cancel_launch");
       await invoke("cancel_download");
-    } catch 
+    } catch (e) {
+        // error ignored
+      }
     setLaunching(false);
     setStatus("ready");
     setProgress(null);

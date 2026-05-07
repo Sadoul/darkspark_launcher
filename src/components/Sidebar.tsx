@@ -129,14 +129,18 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
     const filtered = navOrder.filter((id) => valid.has(id));
     if (filtered.length !== navOrder.length) {
       setNavOrder(filtered);
-      try { localStorage.setItem(NAV_ORDER_STORAGE_KEY, JSON.stringify(filtered)); } catch 
+      try { localStorage.setItem(NAV_ORDER_STORAGE_KEY, JSON.stringify(filtered)); } catch (e) {
+        // error ignored
+      }
     }
   }, [baseNavItems, navOrder]);
 
   const persistOrder = (items: NavItem[]) => {
     const order = items.map((item) => item.id as string);
     setNavOrder(order);
-    try { localStorage.setItem(NAV_ORDER_STORAGE_KEY, JSON.stringify(order)); } catch 
+    try { localStorage.setItem(NAV_ORDER_STORAGE_KEY, JSON.stringify(order)); } catch (e) {
+        // error ignored
+      }
   };
 
 
@@ -216,7 +220,9 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
       if (dx * dx + dy * dy < 25) return;
       state.started = true;
       setDragId(state.id);
-      try { (event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId); } catch 
+      try { (event.currentTarget as HTMLButtonElement).setPointerCapture(event.pointerId); } catch (e) {
+        // error ignored
+      }
     }
     const hoverId = findNavItemIdAt(event.clientX, event.clientY);
     setOverId(hoverId);
@@ -230,7 +236,9 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
     const state = dragStateRef.current;
     dragStateRef.current = null;
     if (!state) return;
-    try { (event.currentTarget as HTMLButtonElement).releasePointerCapture(event.pointerId); } catch 
+    try { (event.currentTarget as HTMLButtonElement).releasePointerCapture(event.pointerId); } catch (e) {
+        // error ignored
+      }
     if (state.started && commit) {
 
     }
@@ -254,7 +262,9 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
   };
 
   const handleOpenFolder = async () => {
-    try { await invoke("open_data_folder"); } catch 
+    try { await invoke("open_data_folder"); } catch (e) {
+        // error ignored
+      }
   };
 
   return (

@@ -126,7 +126,9 @@ export default function CustomModpackPanel({ onInstalled }: CustomModpackPanelPr
   const handleCancel = async () => {
     try {
       await invoke("cancel_download");
-    } catch 
+    } catch (e) {
+        // error ignored
+      }
     setInstalling(false);
     setInstallProgress(0);
     setInstallMsg("");
