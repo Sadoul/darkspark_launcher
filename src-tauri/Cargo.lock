@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "darkspark-launcher"
-version = "2.70.1"
+version = "2.70.6"
 dependencies = [
  "base64 0.22.1",
  "chrono",
