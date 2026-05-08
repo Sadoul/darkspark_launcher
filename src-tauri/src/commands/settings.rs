@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use std::fs;
 use std::path::{Path, PathBuf};
+use tauri::AppHandle;
 
 fn data_dir() -> PathBuf {
     dirs::config_dir()
@@ -126,5 +127,41 @@ pub fn delete_builtin_modpack(modpack_name: String) -> Result<(), String> {
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("Не удалось удалить сборку: {e}"))?;
     }
+    Ok(())
+}
+
+// ─── Delete launcher ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn delete_launcher(app: AppHandle) -> Result<(), String> {
+    let dir = data_dir();
+    if dir.exists() {
+        fs::remove_dir_all(&dir).map_err(|e| format!("Не удалось удалить данные: {e}"))?;
+    }
+
+    #[cfg(windows)]
+    {
+        let uninstall_keys = [
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\com.darkspark.launcher_is1",
+            r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher_is1",
+        ];
+
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        for key_path in &uninstall_keys {
+            if let Ok(key) = hkcu.open_subkey(key_path) {
+                if let Ok(uninstall_str) = key.get_value::<String, _>("UninstallString") {
+                    let _ = std::process::Command::new(&uninstall_str)
+                        .args(["/S"])
+                        .spawn();
+                    break;
+                }
+            }
+        }
+    }
+
+    app.exit(0);
     Ok(())
 }

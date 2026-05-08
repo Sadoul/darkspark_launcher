@@ -195,7 +195,7 @@ pub fn run() {
             settings::get_builtin_modpack_dir,
             settings::open_builtin_modpack_folder,
             settings::delete_builtin_modpack,
-            // settings::delete_launcher,
+            settings::delete_launcher,
 
             logger::set_logging_enabled,
             logger::get_log,
