@@ -45,22 +45,12 @@ interface ModpackConfig {
 const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
   darkspark: {
     title: "DarkSpark",
-    description: "Погрузитесь в мир ролевых приключений на Forge 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
-    githubRepo: "Sadoul/rpworld",
+    description: "Погрузитесь в мир ролевых приключений на Fabric 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
+    githubRepo: "Sadoul/darkspark_modpack",
     modpackName: "darkspark",
-    defaultVersion: "forge-1.20.1",
+    defaultVersion: "fabric-1.20.1",
     mcVersion: "1.20.1",
     bg: ["/backgrounds/rpworld.jpg", "/backgrounds/rpworld2.jpg"],
-  },
-  minigames: {
-    title: "Мини-игры",
-    description: "BedWars, SkyWars и другие мини-игры. В разработке — скоро!",
-    githubRepo: "Sadoul/minigames",
-    modpackName: "minigames",
-    defaultVersion: "1.20.1",
-    mcVersion: "1.20.1",
-    locked: true,
-    bg: ["/backgrounds/minigames.jpg"],
   },
 };
 
@@ -427,7 +417,7 @@ export default function GamePanel({
       <div className="game-panel-footer">
         <div className="footer-glass-card">
           <span className="footer-modpack-name">{config.title}</span>
-          <span className="footer-mc-version">Minecraft {config.mcVersion} · Forge</span>
+          <span className="footer-mc-version">Minecraft {config.mcVersion}{config.defaultVersion.startsWith("fabric") ? " · Fabric" : config.defaultVersion.startsWith("forge") ? " · Forge" : ""}</span>
         </div>
         <div className="footer-actions">
           <span className={`status-badge ${status === "ready" ? "ready" : status === "update" ? "update" : "downloading"}`}>
