@@ -1,6 +1,6 @@
 [package]
 name = "darkspark-launcher"
-version = "2.70.1"
+version = "2.70.2"
 description = "DarkSpark Minecraft Launcher"
 authors = ["Sadoul"]
 edition = "2021"
