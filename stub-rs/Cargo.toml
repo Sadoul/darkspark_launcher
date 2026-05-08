@@ -1,11 +1,11 @@
 [package]
-name = "rpw-stub"
+name = "darkspark-stub"
 version = "2.6.0"
 edition = "2021"
-description = "RPWorld Launcher Stub — checks install and launches or downloads the launcher"
+description = "DarkSpark Launcher Stub — checks install and launches or downloads the launcher"
 
 [[bin]]
-name = "RPWorld-Launcher"
+name = "DarkSpark-Launcher"
 path = "src/main.rs"
 
 [dependencies]

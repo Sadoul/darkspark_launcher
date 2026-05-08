@@ -55,6 +55,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "darkspark-stub"
+version = "2.6.0"
+dependencies = [
+ "dirs",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "windows-sys 0.52.0",
+ "winreg",
+ "winres",
+]
+
+[[package]]
 name = "dirs"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -676,19 +689,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rpw-stub"
-version = "2.6.0"
-dependencies = [
- "dirs",
- "reqwest",
- "serde",
- "serde_json",
- "windows-sys 0.52.0",
- "winreg",
- "winres",
 ]
 
 [[package]]
