@@ -407,7 +407,7 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
           </div>
           <div className="account-info">
             <div className="account-name">{account.username}</div>
-            <div className="account-type">{account.account_type === "offline" ? "Офлайн" : "Microsoft"}</div>
+            <div className="account-type">{account.account_type === "offline" ? "DarkSpark" : "Microsoft"}</div>
           </div>
           <motion.button
             className="logout-btn"
