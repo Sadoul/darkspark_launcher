@@ -109,7 +109,6 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            dist/main/*.exe
             dist/stub/DarkSpark-Launcher.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
