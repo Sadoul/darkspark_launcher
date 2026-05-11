@@ -1,6 +1,6 @@
 [package]
 name = "darkspark-stub"
-version = "2.70.7"
+version = "2.70.9"
 edition = "2021"
 description = "DarkSpark Launcher Stub — checks install and launches or downloads the launcher"
 

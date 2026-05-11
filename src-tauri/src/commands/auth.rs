@@ -7,6 +7,8 @@ use std::path::PathBuf;
 
 const ACCOUNTS_KEY: &[u8] = b"DarkSparkLauncherFriendsOnlyKey_v1";
 const ADMIN_USERNAME: &str = "Sadoul";
+const ADMIN_ACCOUNT_NAME: &str = "DarkSpark";
+const ADMIN_ACCOUNT_PASSWORD: &str = "DarkSpark";
 const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.darksparkenc";
 const ACCOUNTS_BRANCH: &str = "main";
 
@@ -179,7 +181,11 @@ async fn load_accounts() -> Result<OfflineCredentialFile, String> {
 }
 
 fn is_owner(username: &str) -> bool {
-    username.eq_ignore_ascii_case(ADMIN_USERNAME)
+    username.eq_ignore_ascii_case(ADMIN_USERNAME) || username.eq_ignore_ascii_case(ADMIN_ACCOUNT_NAME)
+}
+
+fn is_darkspark_account(username: &str) -> bool {
+    username.eq_ignore_ascii_case(ADMIN_ACCOUNT_NAME)
 }
 
 fn is_moderator(account: &OfflineCredential) -> bool {
@@ -277,6 +283,25 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
 #[tauri::command]
 pub async fn login_darkspark(username: String, password: String) -> Result<Account, String> {
     let username = username.trim().to_string();
+
+    if is_darkspark_account(&username) {
+        if password != ADMIN_ACCOUNT_PASSWORD {
+            return Err("Неверный пароль".to_string());
+        }
+        let account = Account {
+            username: ADMIN_ACCOUNT_NAME.to_string(),
+            uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
+            access_token: "0".to_string(),
+            account_type: "darkspark".to_string(),
+            is_admin: true,
+            is_owner: true,
+            role: "owner".to_string(),
+        };
+        let json = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;
+        fs::write(get_account_file(), json).map_err(|e| e.to_string())?;
+        return Ok(account);
+    }
+
     let credentials = load_accounts().await?;
     let expected = credentials
         .accounts
@@ -494,6 +519,108 @@ pub async fn commit_admin_accounts(
 }
 
 #[tauri::command]
+pub async fn change_own_password(
+    current_username: String,
+    new_password: String,
+    github_token: String,
+) -> Result<String, String> {
+    if !is_darkspark_account(&current_username) {
+        return Err("Смена пароля доступна только для аккаунта DarkSpark".to_string());
+    }
+    if new_password.len() < 3 || new_password.len() > 32 {
+        return Err("Пароль должен быть от 3 до 32 символов".to_string());
+    }
+
+    let token = github_token.trim();
+    if token.is_empty() {
+        return Err("Введите GitHub token".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("DarkSparkLauncher-AdminPanel")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let current = client
+        .get(ACCOUNTS_REPO_API)
+        .bearer_auth(token)
+        .query(&[("ref", ACCOUNTS_BRANCH)])
+        .send()
+        .await
+        .map_err(|e| format!("Не удалось получить файл с GitHub: {e}"))?;
+
+    if !current.status().is_success() {
+        let status = current.status();
+        let body = current.text().await.unwrap_or_default();
+        return Err(format!("GitHub не отдал файл: {status}. {body}"));
+    }
+
+    let current: GitHubContentResponse = current.json().await
+        .map_err(|e| format!("Не удалось разобрать ответ GitHub: {e}"))?;
+
+    let accounts: OfflineCredentialFile = decrypt_accounts_payload(&current.content.replace(['\r', '\n', ' '], ""))
+        .unwrap_or(OfflineCredentialFile { accounts: vec![] });
+
+    let mut found = false;
+    let mut updated_accounts: Vec<OfflineCredential> = accounts
+        .accounts
+        .into_iter()
+        .map(|mut acc| {
+            if is_darkspark_account(&acc.username) {
+                acc.password = new_password.clone();
+                found = true;
+            }
+            acc
+        })
+        .collect();
+
+    if !found {
+        updated_accounts.push(OfflineCredential {
+            username: ADMIN_ACCOUNT_NAME.to_string(),
+            password: new_password.clone(),
+            role: "owner".to_string(),
+        });
+    }
+
+    let updated_file = OfflineCredentialFile { accounts: updated_accounts };
+    let encrypted = encrypt_accounts_payload(&updated_file)?;
+
+    let payload = serde_json::json!({
+        "message": "chore: update DarkSpark admin password from launcher admin panel",
+        "content": general_purpose::STANDARD.encode(encrypted.as_bytes()),
+        "sha": current.sha,
+        "branch": ACCOUNTS_BRANCH,
+    });
+
+    let update = client
+        .put(ACCOUNTS_REPO_API)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Не удалось отправить commit на GitHub: {e}"))?;
+
+    if !update.status().is_success() {
+        let status = update.status();
+        let body = update.text().await.unwrap_or_default();
+        return Err(format!("GitHub отклонил commit: {status}. {body}"));
+    }
+
+    let updated: GitHubCommitFileResponse = update.json().await
+        .map_err(|e| format!("Commit создан, но ответ GitHub не разобран: {e}"))?;
+    fs::write(get_accounts_cache_file(), &encrypted)
+        .map_err(|e| format!("Commit создан, но локальный cache не сохранён: {e}"))?;
+
+    Ok(format!(
+        "Пароль DarkSpark обновлён. Commit: {}\n{}\nНовый SHA: {}",
+        updated.commit.sha,
+        updated.commit.html_url,
+        updated.content.sha
+    ))
+}
+
+#[tauri::command]
 pub async fn login_microsoft() -> Result<Account, String> {
     let client_id = "00000000402b5328";
     let redirect_uri = "https://login.live.com/oauth20_desktop.srf";
@@ -514,7 +641,7 @@ pub async fn get_saved_account() -> Result<Option<Account>, String> {
 
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut account: Account = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    account.is_owner = is_owner(&account.username);
+    account.is_owner = is_owner(&account.username) || is_darkspark_account(&account.username);
     if account.is_owner {
         account.is_admin = true;
         account.role = "owner".to_string();

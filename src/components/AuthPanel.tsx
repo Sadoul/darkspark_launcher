@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,6 +12,9 @@ interface Account {
 interface AuthPanelProps {
   onLogin: (account: Account) => void;
 }
+
+const ADMIN_NAME = "DarkSpark";
+const ADMIN_PASSWORD = "DarkSpark";
 
 const UserIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -49,8 +52,11 @@ const itemVariants = {
 
 export default function AuthPanel({ onLogin }: AuthPanelProps) {
   const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [pendingUsername, setPendingUsername] = useState("");
 
   const handleLogin = async () => {
     if (!username.trim() || username.length < 3) {
@@ -66,10 +72,41 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
       return;
     }
 
+    const cleanUsername = username.trim();
+    if (cleanUsername.toLowerCase() === ADMIN_NAME.toLowerCase()) {
+      if (!showPasswordPrompt) {
+        setPendingUsername(cleanUsername);
+        setShowPasswordPrompt(true);
+        setError("");
+        return;
+      }
+      if (password !== ADMIN_PASSWORD) {
+        setError("Неверный пароль");
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const account = await invoke<Account>("login_darkspark", { username: ADMIN_NAME, password: ADMIN_PASSWORD });
+        onLogin(account);
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setLoading(false);
+        setShowPasswordPrompt(false);
+        setPassword("");
+      }
+      return;
+    }
+
+    if (showPasswordPrompt) {
+      setShowPasswordPrompt(false);
+      setPassword("");
+    }
+
     setLoading(true);
     setError("");
     try {
-      const cleanUsername = username.trim();
       const account = await invoke<Account>("login_offline", { username: cleanUsername });
       onLogin(account);
     } catch (err) {
@@ -119,7 +156,7 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
             <div className="auth-modal-logo-glow" />
           </div>
           <h1 className="auth-modal-title">DarkSpark Launcher</h1>
-          <p className="auth-modal-subtitle">Введите никнейм для входа</p>
+          <p className="auth-modal-subtitle">{showPasswordPrompt ? `Введите пароль для ${ADMIN_NAME}` : "Введите никнейм для входа"}</p>
         </motion.div>
 
         <motion.div className="auth-modal-form" custom={1} variants={itemVariants} initial="hidden" animate="visible">
@@ -131,11 +168,11 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
               <input
                 type="text"
                 className="auth-modal-input"
-                placeholder="Введите никнейм..."
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder={showPasswordPrompt ? "Введите пароль..." : "Введите никнейм..."}
+                value={showPasswordPrompt ? password : username}
+                onChange={(e) => showPasswordPrompt ? setPassword(e.target.value) : setUsername(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                maxLength={16}
+                maxLength={showPasswordPrompt ? 32 : 16}
                 autoFocus
               />
             </div>
@@ -156,7 +193,7 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
             <motion.button
               className="auth-modal-submit"
               onClick={handleLogin}
-              disabled={loading || !username.trim()}
+              disabled={loading || (showPasswordPrompt ? !password.trim() : !username.trim())}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >

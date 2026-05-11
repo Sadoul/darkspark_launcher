@@ -2,14 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-
-interface AccountRow {
-  username: string;
-  password: string;
-  role?: string;
-}
-
-
 interface BuildFileEntry {
   name: string;
   path: string;
@@ -32,26 +24,18 @@ interface Props {
   isOwner: boolean;
 }
 
-
-const ADMIN_NAME = "Sadoul";
 const BUILD_NAMES = ["darkspark", "minigames"];
 const LOADERS = ["vanilla", "forge", "fabric", "neoforge", "optifine"];
 
 const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(1)} МБ`;
 
 export default function AdminPanel({ username, isOwner }: Props) {
-
-  const [activeTab, setActiveTab] = useState<"accounts" | "builds">("accounts");
-  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [activeTab, setActiveTab] = useState<"builds" | "password">("builds");
   const [githubToken, setGithubToken] = useState("");
   const [message, setMessage] = useState("");
   const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
 
-
   const [saving, setSaving] = useState(false);
-  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
-  const [newUsername, setNewUsername] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [activeBuild, setActiveBuild] = useState("darkspark");
   const [manifest, setManifest] = useState<BuildManifest | null>(null);
   const [uploadingMod, setUploadingMod] = useState(false);
@@ -61,14 +45,15 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const lastDropKeyRef = useRef("");
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
-
-
-    load();
     loadToken();
     loadVersions();
     loadDownloadDir();
+    if (isOwner) loadManifest(activeBuild);
   }, []);
 
   const loadVersions = async () => {
@@ -77,7 +62,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
       const releaseVersions = resp
         .filter(v => (v.version_type ?? v.type) === "release")
         .map(v => v.id);
-
       setAvailableVersions(releaseVersions);
     } catch {
       setAvailableVersions([]);
@@ -87,11 +71,10 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const loadDownloadDir = async () => {
     try {
       setDownloadDir(await invoke<string>("get_build_download_dir"));
-    } catch (e) {
-        // error ignored
-      }
+    } catch {
+      // error ignored
+    }
   };
-
 
   useEffect(() => {
     if (isOwner && githubToken.trim()) loadManifest(activeBuild);
@@ -120,7 +103,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isOwner, activeTab]);
 
-
   const notify = (text: string) => {
     setMessage(text);
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -128,22 +110,12 @@ export default function AdminPanel({ username, isOwner }: Props) {
     window.setTimeout(() => setToasts(prev => prev.filter(item => item.id !== id)), 4500);
   };
 
-
-  const load = async () => {
-    try {
-      const list = await invoke<AccountRow[]>("get_admin_accounts", { currentUsername: username });
-      setAccounts(list);
-    } catch (e) {
-      setMessage(String(e));
-    }
-  };
-
   const loadToken = async () => {
     try {
       const token = await invoke<string>("get_admin_token", { currentUsername: username });
       setGithubToken(token);
     } catch {
-
+      // error ignored
     }
   };
 
@@ -162,56 +134,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
     try {
       await invoke("save_admin_token", { currentUsername: username, githubToken: token });
     } catch {
-
-    }
-  };
-
-  const updatePassword = (index: number, password: string) => {
-    setAccounts(prev => prev.map((row, i) => i === index ? { ...row, password } : row));
-  };
-
-  const addAccount = () => {
-    const nextUsername = newUsername.trim();
-    const nextPassword = newPassword.trim();
-    if (!nextUsername || !nextPassword) {
-      setMessage("Введите ник и пароль нового игрока");
-      return;
-    }
-    if (accounts.some(a => a.username.toLowerCase() === nextUsername.toLowerCase())) {
-      setMessage(`Игрок ${nextUsername} уже есть`);
-      return;
-    }
-    setAccounts(prev => [...prev, { username: nextUsername, password: nextPassword }]);
-    setNewUsername("");
-    setNewPassword("");
-      notify(`Игрок ${nextUsername} добавлен локально. Нажмите подтверждение, чтобы отправить commit.`);
-
-  };
-
-  const deleteAccount = (account: AccountRow) => {
-    if (account.username.toLowerCase() === ADMIN_NAME.toLowerCase()) {
-      setMessage("Нельзя удалить Sadoul");
-      return;
-    }
-    const ok = window.confirm(`Удалить игрока ${account.username}? Это применится после commit.`);
-    if (!ok) return;
-    setAccounts(prev => prev.filter(a => a.username !== account.username));
-  };
-
-  const commitChanges = async () => {
-    setSaving(true);
-    setMessage("Шифрую файл и отправляю commit на GitHub...");
-    try {
-      const result = await invoke<string>("commit_admin_accounts", {
-        currentUsername: username,
-        githubToken,
-        accounts,
-      });
-      setMessage(result);
-    } catch (e) {
-      setMessage(String(e));
-    } finally {
-      setSaving(false);
+      // error ignored
     }
   };
 
@@ -235,14 +158,11 @@ export default function AdminPanel({ username, isOwner }: Props) {
     notify(`Мод ${mod.name} удалён из списка. Нажмите commit, чтобы сохранить изменение.`);
   };
 
-
   const downloadMod = async (mod: BuildFileEntry) => {
     notify(`Скачиваю ${mod.name}...`);
-
     try {
       const path = await invoke<string>("download_build_mod_file", { modEntry: mod });
       notify(`Мод сохранён: ${path}`);
-
     } catch (e) {
       setMessage(String(e));
     }
@@ -251,7 +171,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const downloadBuild = async () => {
     if (!manifest) return;
     notify(`Скачиваю сборку ${activeBuild}...`);
-
     try {
       const result = await invoke<string>("download_build_bundle", { build: activeBuild, manifest });
       setMessage(result);
@@ -268,13 +187,11 @@ export default function AdminPanel({ username, isOwner }: Props) {
         await invoke("set_build_download_dir", { path: selected });
         setDownloadDir(selected);
         notify(`Папка сохранения: ${selected}`);
-
       }
     } catch (e) {
       setMessage(String(e));
     }
   };
-
 
   const uploadModPath = async (path: string) => {
     if (!manifest || !path) return;
@@ -285,7 +202,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
     setUploadingMod(true);
     notify(`Загружаю мод ${path}...`);
     try {
-
       const entry = await invoke<BuildFileEntry>("upload_build_mod", {
         build: activeBuild,
         githubToken,
@@ -297,7 +213,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
         mods: [...prev.mods.filter(m => m.name !== entry.name), entry],
       } : prev);
       notify(`Мод ${entry.name} загружен. Нажмите «Сохранить manifest», чтобы он вошёл в сборку.`);
-
     } catch (e) {
       notify(`Не удалось загрузить мод: ${String(e)}`);
     } finally {
@@ -334,7 +249,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
     await handleDroppedPaths(paths);
   };
 
-
   const chooseModFiles = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -367,24 +281,51 @@ export default function AdminPanel({ username, isOwner }: Props) {
     }
   };
 
+  const handleChangePassword = async () => {
+    if (newPassword !== confirmPassword) {
+      setMessage("Новый пароль и подтверждение не совпадают");
+      return;
+    }
+    if (newPassword.length < 3 || newPassword.length > 32) {
+      setMessage("Пароль должен быть от 3 до 32 символов");
+      return;
+    }
+    if (!githubToken.trim()) {
+      setMessage("Введите GitHub token для сохранения пароля");
+      return;
+    }
+    setSaving(true);
+    setMessage("Сохраняю новый пароль...");
+    try {
+      const result = await invoke<string>("change_own_password", {
+        currentUsername: username,
+        newPassword,
+        githubToken: githubToken.trim(),
+      });
+      setMessage(result);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (e) {
+      setMessage(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="settings-panel admin-panel" ref={panelRef}>
-
       <h2 style={{ marginBottom: 10, fontWeight: 800, fontSize: 22 }}>Админ-панель</h2>
 
       <div className="admin-main-tabs">
-
-        <button className={`admin-main-tab ${activeTab === "accounts" ? "active" : ""}`} onClick={() => setActiveTab("accounts")}>
-          <span>Пароли</span>
-          <small>Оффлайн-аккаунты игроков</small>
+        <button className={`admin-main-tab ${activeTab === "builds" ? "active" : ""}`} onClick={() => setActiveTab("builds")}>
+          <span>Сборки</span>
+          <small>Моды, версия, loader</small>
         </button>
-        {isOwner && (
-          <button className={`admin-main-tab ${activeTab === "builds" ? "active" : ""}`} onClick={() => setActiveTab("builds")}>
-            <span>Сборки</span>
-            <small>DarkSpark и MiniGames: моды, версия, loader</small>
-          </button>
-        )}
-
+        <button className={`admin-main-tab ${activeTab === "password" ? "active" : ""}`} onClick={() => setActiveTab("password")}>
+          <span>Пароль</span>
+          <small>Сменить пароль DarkSpark</small>
+        </button>
       </div>
 
       <div className="admin-token-box">
@@ -398,53 +339,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
         />
       </div>
 
-      {activeTab === "accounts" && (
-        <>
-          <div className="admin-note">
-            Здесь можно менять пароли, добавлять игроков и удалять старых. После подтверждения лаунчер сам зашифрует
-            <b> public/auth/offline_accounts.darksparkenc</b> и отправит commit в GitHub.
-          </div>
-
-          <div className="admin-add-box">
-            <div className="admin-account-name">Добавить игрока</div>
-            <input className="admin-password-input" value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="Ник" />
-            <input className="admin-password-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Пароль" />
-            <button className="settings-btn" onClick={addAccount}>Добавить</button>
-          </div>
-
-          <div className="admin-account-list">
-            {accounts.map((account, index) => {
-              const visible = !!showPasswords[account.username];
-              return (
-                <div className="admin-account-row" key={account.username}>
-                  <div className="admin-account-name">
-                    {account.username}
-                    {account.username.toLowerCase() === username.toLowerCase() && <span className="admin-mod-count" style={{ fontSize: 9, marginLeft: 6 }}>ВЫ</span>}
-                  </div>
-                  <input className="admin-password-input" type={visible ? "text" : "password"} value={account.password} onChange={e => updatePassword(index, e.target.value)} />
-                  {isOwner && account.username.toLowerCase() !== ADMIN_NAME.toLowerCase() && (
-                    <label className="admin-mod-enabled admin-role-toggle" title="Модератор может управлять пользователями, но не сборками">
-                      <input
-                        type="checkbox"
-                        checked={(account.role || "").toLowerCase() === "moderator"}
-                        onChange={e => setAccounts(prev => prev.map((row, i) => i === index ? { ...row, role: e.target.checked ? "moderator" : "" } : row))}
-                      />
-                      <span>Модер</span>
-                    </label>
-                  )}
-                  <button className="settings-btn compact" onClick={() => setShowPasswords(prev => ({ ...prev, [account.username]: !visible }))}>{visible ? "Скрыть" : "Показать"}</button>
-                  <button className="settings-btn danger compact" disabled={account.username.toLowerCase() === ADMIN_NAME.toLowerCase()} onClick={() => deleteAccount(account)}>Удалить</button>
-
-                </div>
-              );
-            })}
-          </div>
-          <button className="settings-btn accent" onClick={commitChanges} disabled={saving || !githubToken.trim()}>{saving ? "Отправка..." : "Подтвердить и отправить commit"}</button>
-        </>
-      )}
-
-      {activeTab === "builds" && isOwner && (
-
+      {activeTab === "builds" && (
         <div className="admin-build-panel">
           <div className="admin-build-tabs">
             {BUILD_NAMES.map(build => (
@@ -485,12 +380,11 @@ export default function AdminPanel({ username, isOwner }: Props) {
               </div>
 
               <div className="admin-drop-zone" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
-                <div>{uploadingMod ? "Загрузка мода на GitHub..." : "Перетащите .jar моды сюда или на список ниже, чтобы добавить в сборку"}</div>
+                <div>{uploadingMod ? "Загрузка мода на GitHub..." : "Перетащите .jar моды сюда или нажмите кнопку, чтобы добавить в сборку"}</div>
                 <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod}>
                   Выбрать .jar
                 </button>
               </div>
-
 
               <div className="admin-mod-search">
                 <input value={modSearch} onChange={e => setModSearch(e.target.value)} placeholder={`Поиск по модам... (всего: ${manifest.mods.length})`} />
@@ -520,14 +414,31 @@ export default function AdminPanel({ username, isOwner }: Props) {
         </div>
       )}
 
+      {activeTab === "password" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="admin-note">
+            Смена пароля для аккаунта <b>DarkSpark</b>. Новый пароль будет сохранён в GitHub и будет использоваться при следующем входе.
+          </div>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+            Новый пароль
+            <input className="admin-password-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="3-32 символа" />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+            Подтверждение пароля
+            <input className="admin-password-input" type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Повторите пароль" />
+          </label>
+          <button className="settings-btn accent" onClick={handleChangePassword} disabled={saving || !githubToken.trim() || !newPassword}>
+            {saving ? "Сохранение..." : "Сохранить новый пароль"}
+          </button>
+        </div>
+      )}
+
       {message && <div className="admin-message">{message}</div>}
       {toasts.length > 0 && (
         <div className="notification-stack admin-toast-stack">
           {toasts.map(item => <div key={item.id} className="notification admin-toast">{item.text}</div>)}
         </div>
       )}
-
     </div>
-
   );
 }

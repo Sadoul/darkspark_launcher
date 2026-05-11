@@ -154,6 +154,7 @@ pub fn run() {
             auth::get_admin_accounts,
             auth::encrypt_admin_accounts,
             auth::commit_admin_accounts,
+            auth::change_own_password,
             auth::logout,
 
             builds::get_build_manifest,
