@@ -48,7 +48,7 @@ jobs:
           shared-key: main-ds-v2
       - name: Install npm deps
         run: npm ci
-      - name: Generate icons from launcher.png
+      - name: Generate icons
         run: npx @tauri-apps/cli icon images/icons/launcher.png
       - name: Build Tauri app (NSIS)
         run: npm run tauri build -- --bundles nsis
@@ -62,7 +62,7 @@ jobs:
           retention-days: 1
 
   build-stub:
-    name: Build Stub (plain Rust)
+    name: Build Stub
     needs: check
     if: needs.check.outputs.skip != 'true'
     runs-on: windows-latest
@@ -101,7 +101,7 @@ jobs:
           name: stub-exe
           path: dist/stub
       - name: List artifacts
-        run: ls -R dist/
+        run: ls -la dist/
       - uses: softprops/action-gh-release@v2
         with:
           name: "DarkSpark Launcher ${{ github.ref_name }}"
@@ -110,5 +110,6 @@ jobs:
           generate_release_notes: true
           files: |
             dist/stub/DarkSpark-Launcher.exe
+            dist/main/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

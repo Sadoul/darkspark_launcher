@@ -1,8 +1,5 @@
-//! DarkSpark Launcher Stub
-//! Tiny Windows executable (~400 KB) that:
-//!   1. Checks GitHub for the latest release version
-//!   2. If launcher not installed -> downloads NSIS installer silently
-//!   3. Launches the (freshly) installed launcher
+//! DarkSpark Launcher Stub — single exe bootstrap
+//! Checks GitHub for updates, self-updates, and launches the main launcher.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -23,12 +20,11 @@ struct GitHubAsset {
 }
 
 const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
-const EXE_NAME:    &str = "darkspark-launcher.exe";
-const INSTALL_DIR: &str = "DarkSpark Launcher";
+const STUB_ASSET_NAME: &str = "DarkSpark-Stub.exe";
+const LAUNCHER_EXE: &str = "darkspark-launcher.exe";
+const LAUNCHER_DIR: &str = "DarkSpark Launcher";
 const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher";
-const STUB_VERSION: &str = "2.70.10";
-// GitHub token для stub — если пусто, будетanonymous requests (60/час)
-const GITHUB_TOKEN: Option<&str> = None;
+const STUB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn log(msg: &str) {
     let path = std::env::temp_dir().join("darkspark_stub.log");
@@ -38,171 +34,202 @@ fn log(msg: &str) {
 }
 
 fn main() {
-    log(&format!("DarkSpark-Stub v{} started", STUB_VERSION));
+    log(&format!("DarkSpark-Stub v{} starting", STUB_VERSION));
 
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("DarkSpark-Stub/2.70.10")
-        .timeout(std::time::Duration::from_secs(30))
+        .user_agent("DarkSpark-Stub/1.0")
+        .timeout(std::time::Duration::from_secs(20))
         .build()
     {
         Ok(c) => c,
-        Err(e) => {
-            log(&format!("HTTP client error: {}", e));
+        Err(_) => {
             launch_if_installed();
             exit(0);
         }
     };
 
-    // 1. Fetch latest release from GitHub
+    // 1. Fetch latest release
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
-    log(&format!("Fetching: {}", api_url));
 
-    let release_response = match client.get(&api_url).send() {
+    let resp = match client.get(&api_url).send() {
         Ok(r) => r,
-        Err(e) => {
-            log(&format!("Failed to fetch release: {}", e));
+        Err(_) => {
             launch_if_installed();
             exit(0);
         }
     };
 
-    let status = release_response.status();
-    log(&format!("GitHub API response: {}", status));
-
-    // 403 = rate limit или forbidden — запускаем что есть, не показываем ошибку
-    if status.as_u16() == 403 {
-        log("GitHub rate limit (403) — launching installed launcher");
+    let status = resp.status().as_u16();
+    if status == 403 || status == 429 {
+        // Rate limited — just launch whatever is installed
+        launch_if_installed();
+        exit(0);
+    }
+    if !resp.status().is_success() {
         launch_if_installed();
         exit(0);
     }
 
-    if !status.is_success() {
-        log(&format!("GitHub returned error {} — launching installed launcher", status));
-        launch_if_installed();
-        exit(0);
-    }
-
-    let release: GitHubRelease = match release_response.json() {
+    let release: GitHubRelease = match resp.json() {
         Ok(r) => r,
-        Err(e) => {
-            log(&format!("Failed to parse release JSON: {}", e));
+        Err(_) => {
             launch_if_installed();
             exit(0);
         }
     };
 
-    log(&format!("Latest release tag: {}", release.tag_name));
+    let latest_tag = release.tag_name.trim_start_matches('v').to_string();
+    let current_ver = STUB_VERSION.trim_start_matches('v');
 
-    // 2. Check if launcher is installed
-    let launcher_path = find_launcher();
+    log(&format!("Local={}, Remote={}", current_ver, latest_tag));
 
-    if let Some(path) = &launcher_path {
-        log(&format!("Launcher found at: {:?}", path));
-        launch_installed_launcher(path);
+    // 2. Check self-update: if newer stub available, download and replace self
+    if compare_versions(&latest_tag, current_ver) > 0 {
+        log("Newer stub available — self-updating");
+        if let Some(asset) = release.assets.iter().find(|a| a.name == STUB_ASSET_NAME) {
+            if let Some(tmp) = download_file(&client, &asset.browser_download_url, STUB_ASSET_NAME) {
+                if update_self(&tmp) {
+                    log("Self-update OK — relaunching");
+                    let new_exe = std::env::current_exe().unwrap();
+                    let _ = Command::new(&new_exe).spawn();
+                    exit(0);
+                }
+            }
+        }
+    }
+
+    // 3. Check if launcher is installed
+    if let Some(path) = find_launcher() {
+        close_running_launcher();
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        log(&format!("Launching: {:?}", path));
+        let _ = Command::new(&path).spawn();
         exit(0);
     }
 
-    log("Launcher not installed, will download installer");
+    // 4. Launcher not installed — find Tauri exe in release assets
+    log("Launcher not installed, looking for Tauri exe");
 
-    // 3. Find NSIS installer in assets
-    let asset = release.assets.iter().find(|a| {
+    let launcher_asset = release.assets.iter().find(|a| {
         let n = a.name.to_lowercase();
-        n.contains("setup") && n.ends_with(".exe") && !n.contains("DarkSpark-Launcher")
+        n.contains("darkspark-launcher") && n.ends_with(".exe") && n != STUB_ASSET_NAME.to_lowercase()
     });
 
-    let (asset_name, download_url) = match asset {
-        Some(a) => {
-            log(&format!("Found installer: {}", a.name));
-            (a.name.clone(), a.browser_download_url.clone())
+    if let Some(asset) = launcher_asset {
+        log(&format!("Downloading launcher: {}", asset.name));
+        if let Some(tmp) = download_file(&client, &asset.browser_download_url, &asset.name) {
+            let target = get_launcher_install_dir().join(&asset.name);
+            if std::fs::copy(&tmp, &target).is_ok() {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                log(&format!("Launching: {:?}", target));
+                let _ = Command::new(&target).spawn();
+            }
+            let _ = std::fs::remove_file(&tmp);
         }
-        None => {
-            log("No NSIS installer found in release assets");
-            show_error("Не удалось найти установщик в релизе.\nСкачайте лаунчер вручную с GitHub.");
-            exit(0);
-        }
-    };
-
-    // 4. Download installer
-    log(&format!("Downloading: {}", download_url));
-    show_info("DarkSpark Launcher будет скачан и установлен.\nНажмите OK для продолжения.");
-
-    let download_response = match client.get(&download_url).send() {
-        Ok(r) => r,
-        Err(e) => {
-            log(&format!("Download failed: {}", e));
-            show_error(&format!("Ошибка скачивания: {}\nПроверьте интернет-соединение.", e));
-            exit(0);
-        }
-    };
-
-    if !download_response.status().is_success() {
-        log(&format!("Download HTTP error: {}", download_response.status()));
-        show_error(&format!("Ошибка скачивания: HTTP {}", download_response.status()));
-        exit(0);
-    }
-
-    log("Download OK, saving installer");
-
-    let bytes = match download_response.bytes() {
-        Ok(b) => b,
-        Err(e) => {
-            log(&format!("Failed to read bytes: {}", e));
-            show_error(&format!("Ошибка чтения файла: {}", e));
-            exit(0);
-        }
-    };
-
-    log(&format!("Downloaded {} bytes", bytes.len()));
-
-    let temp_dir = std::env::temp_dir();
-    let installer_path = temp_dir.join(&asset_name);
-
-    if let Err(e) = std::fs::write(&installer_path, &bytes) {
-        log(&format!("Failed to save installer: {}", e));
-        show_error(&format!("Не удалось сохранить установщик: {}", e));
-        exit(0);
-    }
-
-    log(&format!("Installer saved to: {:?}", installer_path));
-
-    // 5. Run NSIS installer silently
-    log("Running NSIS installer...");
-    let status = Command::new(&installer_path)
-        .args(["/S"])
-        .creation_flags(0x08000000)
-        .spawn()
-        .and_then(|mut c: std::process::Child| c.wait());
-
-    let _ = std::fs::remove_file(&installer_path);
-
-    let wait_ms = if status.is_ok() { 3000 } else { 1000 };
-    std::thread::sleep(std::time::Duration::from_millis(wait_ms));
-
-    if let Some(path) = find_launcher() {
-        log(&format!("Launching: {:?}", path));
-        launch_installed_launcher(&path);
     } else {
-        log("Launcher not found after install!");
-        show_error("Лаунчер не был установлен.\nПопробуйте снова или скачайте вручную.");
+        // No direct exe found — fall back to downloading NSIS installer if exists
+        let nsis = release.assets.iter().find(|a| {
+            let n = a.name.to_lowercase();
+            n.contains("setup") && n.ends_with(".exe")
+        });
+        if let Some(asset) = nsis {
+            log(&format!("Running NSIS installer: {}", asset.name));
+            if let Some(tmp) = download_file(&client, &asset.browser_download_url, &asset.name) {
+                let _ = Command::new(&tmp)
+                    .args(["/S"])
+                    .creation_flags(0x08000000)
+                    .spawn();
+                std::thread::sleep(std::time::Duration::from_millis(4000));
+                if let Some(path) = find_launcher() {
+                    close_running_launcher();
+                    std::thread::sleep(std::time::Duration::from_millis(900));
+                    let _ = Command::new(&path).spawn();
+                }
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
     }
+}
+
+fn compare_versions(latest: &str, current: &str) -> i32 {
+    let parse = |v: &str| {
+        v.split('.').map(|s| s.parse::<u64>().unwrap_or(0)).collect::<Vec<u64>>()
+    };
+    let a = parse(latest);
+    let b = parse(current);
+    let len = a.len().max(b.len());
+    for i in 0..len {
+        let av = a.get(i).unwrap_or(&0);
+        let bv = b.get(i).unwrap_or(&0);
+        if av != bv {
+            return if av > bv { 1 } else { -1 };
+        }
+    }
+    0
+}
+
+fn download_file(client: &reqwest::blocking::Client, url: &str, name: &str) -> Option<PathBuf> {
+    let resp = match client.get(url).send() {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    if !resp.status().is_success() {
+        return None;
+    }
+    let bytes = match resp.bytes() {
+        Ok(b) => b,
+        Err(_) => return None,
+    };
+    let tmp = std::env::temp_dir().join(name);
+    if std::fs::write(&tmp, &bytes).is_ok() {
+        Some(tmp)
+    } else {
+        None
+    }
+}
+
+fn update_self(tmp: &PathBuf) -> bool {
+    let self_exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    let backup = std::env::temp_dir().join("darkspark_stub_old.exe");
+
+    // Remove old backup first
+    let _ = std::fs::remove_file(&backup);
+
+    // Rename current exe to backup
+    std::fs::rename(&self_exe, &backup).ok();
+
+    // Copy new exe over current
+    if std::fs::copy(tmp, &self_exe).is_err() {
+        // Restore backup
+        let _ = std::fs::rename(&backup, &self_exe);
+        return false;
+    }
+
+    // Clean up backup
+    let _ = std::fs::remove_file(&backup);
+    true
+}
+
+fn get_launcher_install_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(LAUNCHER_DIR)
 }
 
 fn launch_if_installed() {
     if let Some(path) = find_launcher() {
-        launch_installed_launcher(&path);
+        close_running_launcher();
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        let _ = Command::new(&path).spawn();
     }
-}
-
-fn launch_installed_launcher(path: &PathBuf) {
-    close_running_launcher();
-    std::thread::sleep(std::time::Duration::from_millis(900));
-    log(&format!("Launching: {:?}", path));
-    let _ = Command::new(path).spawn();
 }
 
 fn close_running_launcher() {
     let _ = Command::new("taskkill")
-        .args(["/IM", EXE_NAME, "/F", "/T"])
+        .args(["/IM", LAUNCHER_EXE, "/F", "/T"])
         .creation_flags(0x08000000)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -215,11 +242,10 @@ fn find_launcher() -> Option<PathBuf> {
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-
     if let Ok(key) = hkcu.open_subkey(REG_KEY) {
         if let Ok(raw) = key.get_value::<String, _>("InstallLocation") {
             let dir = raw.trim_matches('"');
-            let exe = PathBuf::from(dir).join(EXE_NAME);
+            let exe = PathBuf::from(dir).join(LAUNCHER_EXE);
             if exe.exists() {
                 return Some(exe);
             }
@@ -227,8 +253,8 @@ fn find_launcher() -> Option<PathBuf> {
     }
 
     let candidates = [
-        dirs::data_local_dir().map(|d| d.join(INSTALL_DIR).join(EXE_NAME)),
-        dirs::data_local_dir().map(|d| d.join("Programs").join(INSTALL_DIR).join(EXE_NAME)),
+        dirs::data_local_dir().map(|d| d.join(&LAUNCHER_DIR).join(LAUNCHER_EXE)),
+        dirs::data_local_dir().map(|d| d.join("Programs").join(&LAUNCHER_DIR).join(LAUNCHER_EXE)),
     ];
     for candidate in candidates.into_iter().flatten() {
         if candidate.exists() {
@@ -236,35 +262,4 @@ fn find_launcher() -> Option<PathBuf> {
         }
     }
     None
-}
-
-fn show_error(msg: &str) {
-    log(&format!("ERROR: {}", msg));
-    #[cfg(windows)]
-    unsafe {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        let msg_w: Vec<u16> = OsStr::new(msg).encode_wide().chain(Some(0)).collect();
-        let cap_w: Vec<u16> = OsStr::new("DarkSpark Launcher").encode_wide().chain(Some(0)).collect();
-        windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
-            0, msg_w.as_ptr(), cap_w.as_ptr(),
-            windows_sys::Win32::UI::WindowsAndMessaging::MB_OK
-                | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
-        );
-    }
-}
-
-fn show_info(msg: &str) {
-    #[cfg(windows)]
-    unsafe {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        let msg_w: Vec<u16> = OsStr::new(msg).encode_wide().chain(Some(0)).collect();
-        let cap_w: Vec<u16> = OsStr::new("DarkSpark Launcher").encode_wide().chain(Some(0)).collect();
-        windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
-            0, msg_w.as_ptr(), cap_w.as_ptr(),
-            windows_sys::Win32::UI::WindowsAndMessaging::MB_OK
-                | windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION,
-        );
-    }
 }
