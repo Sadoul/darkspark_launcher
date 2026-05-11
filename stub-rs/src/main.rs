@@ -26,7 +26,9 @@ const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
 const EXE_NAME:    &str = "darkspark-launcher.exe";
 const INSTALL_DIR: &str = "DarkSpark Launcher";
 const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher";
-const STUB_VERSION: &str = "2.70.7";
+const STUB_VERSION: &str = "2.70.10";
+// GitHub token для stub — если пусто, будетanonymous requests (60/час)
+const GITHUB_TOKEN: Option<&str> = None;
 
 fn log(msg: &str) {
     let path = std::env::temp_dir().join("darkspark_stub.log");
@@ -39,7 +41,7 @@ fn main() {
     log(&format!("DarkSpark-Stub v{} started", STUB_VERSION));
 
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("DarkSpark-Stub/2.70.7")
+        .user_agent("DarkSpark-Stub/2.70.10")
         .timeout(std::time::Duration::from_secs(30))
         .build()
     {
@@ -59,7 +61,6 @@ fn main() {
         Ok(r) => r,
         Err(e) => {
             log(&format!("Failed to fetch release: {}", e));
-            show_error("Не удалось проверить обновление на GitHub.\nПроверьте интернет-соединение.");
             launch_if_installed();
             exit(0);
         }
@@ -68,8 +69,15 @@ fn main() {
     let status = release_response.status();
     log(&format!("GitHub API response: {}", status));
 
+    // 403 = rate limit или forbidden — запускаем что есть, не показываем ошибку
+    if status.as_u16() == 403 {
+        log("GitHub rate limit (403) — launching installed launcher");
+        launch_if_installed();
+        exit(0);
+    }
+
     if !status.is_success() {
-        show_error(&format!("GitHub вернул ошибку: {}\nЛаунчер будет запущен.", status));
+        log(&format!("GitHub returned error {} — launching installed launcher", status));
         launch_if_installed();
         exit(0);
     }
