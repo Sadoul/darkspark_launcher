@@ -1,12 +1,12 @@
 [package]
-name = "darkspark-launcher"
-version = "2.70.6"
-description = "DarkSpark Minecraft Launcher"
+name = "danganverse-launcher"
+version = "2.70.11"
+description = "DanganVerse Minecraft Launcher"
 authors = ["Sadoul"]
 edition = "2021"
 
 [lib]
-name = "darkspark_launcher_lib"
+name = "danganverse_launcher_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

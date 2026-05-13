@@ -138,6 +138,8 @@ pub struct BuildManifest {
     pub loader_version: String,
     #[serde(default)]
     pub mods: Vec<BuildFileEntry>,
+    #[serde(default)]
+    pub server_ip: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -156,7 +158,7 @@ fn default_enabled() -> bool { true }
 fn get_minecraft_dir() -> PathBuf {
     let dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
         .join("minecraft");
     fs::create_dir_all(&dir).ok();
     dir
@@ -222,7 +224,7 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> R
 
 fn build_repo_for_modpack(name: &str) -> Option<&'static str> {
     match name.to_lowercase().as_str() {
-        "darkspark" => Some("Sadoul/darkspark_modpack"),
+        "danganverse" => Some("Sadoul/danganverse_modpack"),
         _ => None,
     }
 }
@@ -824,7 +826,7 @@ pub async fn launch_game(
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("DarkSparkLauncher/2.10")
+        .user_agent("DanganVerseLauncher/2.10")
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| e.to_string())?;
@@ -841,6 +843,7 @@ pub async fn launch_game(
         .map_err(|e| format!("[launch] Cannot create game dir: {}", e))?;
 
     let mut launch_version = version.clone();
+    let mut server_ip: Option<String> = None;
     if let Some(modpack_name) = mc_dir.file_name().and_then(|n| n.to_str()) {
         if let Some(manifest) = sync_build_files(&client, modpack_name, &mc_dir).await? {
             let loader = manifest.loader.to_lowercase();
@@ -850,6 +853,10 @@ pub async fn launch_game(
                 format!("{}-{}", loader, manifest.minecraft_version)
             };
             log(&format!("[build] Launch version overridden by manifest: {}", launch_version));
+            server_ip = manifest.server_ip;
+            if let Some(ref ip) = server_ip {
+                log(&format!("[build] Server IP set: {}", ip));
+            }
         }
     }
 
@@ -1134,7 +1141,7 @@ pub async fn launch_game(
                     let replaced = s
                         .replace("${classpath}", &classpath)
                         .replace("${natives_directory}", &natives_dir.to_string_lossy())
-                        .replace("${launcher_name}", "DarkSparkLauncher")
+                        .replace("${launcher_name}", "DanganVerseLauncher")
                         .replace("${launcher_version}", "2.10")
                         .replace("${library_directory}", &mc_dir.join("libraries").to_string_lossy())
                         .replace("${classpath_separator}", ";");
@@ -1169,7 +1176,7 @@ pub async fn launch_game(
             .replace("${auth_uuid}", &uuid)
             .replace("${auth_access_token}", &access_token)
             .replace("${user_type}", "mojang")
-            .replace("${version_type}", "DarkSparkLauncher");
+            .replace("${version_type}", "DanganVerseLauncher");
         args.extend(game_args.split_whitespace().map(|s| s.to_string()));
     } else {
         log("[launch] Using modern arguments.game format");
@@ -1205,11 +1212,26 @@ pub async fn launch_game(
                         .replace("${auth_xuid}", "")
                         .replace("${user_properties}", "{}")
                         .replace("${user_type}", "mojang")
-                        .replace("${version_type}", "DarkSparkLauncher");
+                        .replace("${version_type}", "DanganVerseLauncher");
                     args.push(replaced);
                 }
             }
         }
+    }
+
+    // Add server IP args if configured
+    if let Some(ref ip) = server_ip {
+        let (host, port) = if ip.contains(':') {
+            let parts: Vec<&str> = ip.splitn(2, ':').collect();
+            (parts[0].to_string(), parts[1].parse::<u16>().unwrap_or(25565))
+        } else {
+            (ip.clone(), 25565u16)
+        };
+        args.push("--server".to_string());
+        args.push(host);
+        args.push("--port".to_string());
+        args.push(port.to_string());
+        log(&format!("[launch] Added server args: {}:{}", ip, port));
     }
 
     log(&format!("[launch] Total args: {}", args.len()));

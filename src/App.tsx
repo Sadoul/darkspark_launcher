@@ -61,9 +61,12 @@ export interface CustomModpack {
 
 let appInitialized = false;
 
+const DISCORD_URL_STORAGE = "danganverse_discord_url";
+const DISCORD_URL_FALLBACK = "https://discord.gg/yvFE4rjnjf";
+
 export default function App() {
   const [account, setAccount] = useState<Account | null>(null);
-  const [currentPage, setCurrentPage] = useState<Page>("darkspark");
+  const [currentPage, setCurrentPage] = useState<Page>("danganverse");
   const [configurePage, setConfigurePage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(true);
   const [javaPath, setJavaPath] = useState("");
@@ -195,7 +198,7 @@ export default function App() {
     try {
       await invoke("delete_custom_modpack", { name });
       await loadCustomModpacks();
-      setCurrentPage("darkspark");
+      setCurrentPage("danganverse");
       showNotification(`Модпак «${name}» удалён`);
     } catch (e) {
       showNotification(String(e));
@@ -203,8 +206,8 @@ export default function App() {
   };
 
   const deleteBuiltinModpack = async (page: Page) => {
-    if (page !== "darkspark" && page !== "minigames") return;
-    const title = page === "darkspark" ? "darkspark" : "Мини-игры";
+    if (page !== "danganverse") return;
+    const title = "danganverse";
     if (!confirm(`Удалить установленную сборку «${title}» с компьютера? Лаунчер останется.`)) return;
     try {
       await invoke("delete_builtin_modpack", { modpackName: page });
@@ -282,7 +285,7 @@ export default function App() {
         >
           <motion.img
             src="/icons/Inside.png"
-            alt="DarkSpark"
+            alt="DanganVerse"
             style={{ width: 72, height: 72, borderRadius: "18px", objectFit: "cover" }}
             animate={{ boxShadow: ["0 0 20px rgba(212,121,58,0.3)", "0 0 50px rgba(212,121,58,0.6)", "0 0 20px rgba(212,121,58,0.3)"] }}
             transition={{ duration: 2, repeat: Infinity }}
@@ -323,6 +326,7 @@ export default function App() {
           }}
           onDeleteBuiltinModpack={deleteBuiltinModpack}
           onDeleteCustomModpack={deleteCustomModpack}
+          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL}
         />
 
         <div className="content-area">
@@ -412,7 +416,7 @@ export default function App() {
             ) : (
               <GamePanel
                 key="fallback"
-                page="darkspark"
+                page="danganverse"
                 account={account}
                 javaPath={javaPath}
                 maxMemory={maxMemory}
@@ -428,7 +432,7 @@ export default function App() {
       </div>
 
       <AnimatePresence>
-        {globalLaunchProgress && currentPage !== "darkspark" && currentPage !== "minigames" && !currentPage.startsWith("custom:") && (
+        {globalLaunchProgress && currentPage !== "danganverse" && !currentPage.startsWith("custom:") && (
           <motion.div
             className="global-launch-progress"
             initial={{ opacity: 0, y: 16 }}

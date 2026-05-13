@@ -5,9 +5,10 @@ use super::logger::log as launcher_log;
 use std::fs;
 use std::path::PathBuf;
 
-const ACCOUNTS_KEY: &[u8] = b"DarkSparkLauncherFriendsOnlyKey_v1";
-const ADMIN_USERNAME: &str = "Sadoul";
-const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.darksparkenc";
+const ACCOUNTS_KEY: &[u8] = b"DanganVerseLauncherFriendsOnlyKey_v1";
+const ADMIN_USERNAME: &str = "DarkSpark00";
+const ADMIN_PASSWORD: &str = "Oiw$8z09o@H8";
+const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.danganverseenc";
 const ACCOUNTS_BRANCH: &str = "main";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,7 +61,7 @@ struct GitHubCommitInfo {
 fn get_config_dir() -> PathBuf {
     let dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark");
+        .join(".danganverse");
     fs::create_dir_all(&dir).ok();
     dir
 }
@@ -100,7 +101,7 @@ pub async fn save_theme(theme: String) -> Result<(), String> {
 }
 
 fn get_accounts_cache_file() -> PathBuf {
-    get_config_dir().join("offline_accounts.darksparkenc")
+    get_config_dir().join("offline_accounts.danganverseenc")
 }
 
 fn xor_bytes(data: &[u8]) -> Vec<u8> {
@@ -140,7 +141,7 @@ fn encrypt_accounts_payload(accounts: &OfflineCredentialFile) -> Result<String, 
 async fn load_accounts() -> Result<OfflineCredentialFile, String> {
     launcher_log("[accounts] load_accounts: starting");
     let client = reqwest::Client::builder()
-        .user_agent("DarkSparkLauncher/Accounts")
+        .user_agent("DanganVerseLauncher/Accounts")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -175,7 +176,7 @@ async fn load_accounts() -> Result<OfflineCredentialFile, String> {
     }
 
     launcher_log("[accounts] load_accounts: falling back to embedded");
-    decrypt_accounts_payload(include_str!("../../../public/auth/offline_accounts.darksparkenc"))
+    decrypt_accounts_payload(include_str!("../../../public/auth/offline_accounts.danganverseenc"))
 }
 
 fn is_owner(username: &str) -> bool {
@@ -203,7 +204,7 @@ fn build_account(credential: &OfflineCredential) -> Account {
         username: credential.username.clone(),
         uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
         access_token: "0".to_string(),
-        account_type: "darkspark".to_string(),
+        account_type: "danganverse".to_string(),
         is_admin: owner || moderator,
         is_owner: owner,
         role: if owner { "owner".to_string() } else { credential.role.clone() },
@@ -257,7 +258,7 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
     }
     let credentials = load_accounts().await?;
     if credentials.accounts.iter().any(|account| account.username.eq_ignore_ascii_case(&username)) {
-        return Err("Этот ник занят DarkSpark аккаунтом. Используйте вход DarkSpark аккаунт.".to_string());
+        return Err("Этот ник занят DanganVerse аккаунтом. Используйте вход DanganVerse аккаунт.".to_string());
     }
 
     let account = Account {
@@ -277,18 +278,22 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
 #[tauri::command]
 pub async fn login_darkspark(username: String, password: String) -> Result<Account, String> {
     let username = username.trim().to_string();
-    let credentials = load_accounts().await?;
-    let expected = credentials
-        .accounts
-        .iter()
-        .find(|account| account.username.eq_ignore_ascii_case(&username))
-        .ok_or_else(|| "Аккаунт не найден в списке DarkSpark".to_string())?;
-
-    if expected.password != password {
+    if !username.eq_ignore_ascii_case(ADMIN_USERNAME) {
+        return Err("Аккаунт не найден".to_string());
+    }
+    if password != ADMIN_PASSWORD {
         return Err("Неверный пароль".to_string());
     }
 
-    let account = build_account(expected);
+    let account = Account {
+        username: ADMIN_USERNAME.to_string(),
+        uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
+        access_token: "0".to_string(),
+        account_type: "danganverse".to_string(),
+        is_admin: true,
+        is_owner: true,
+        role: "owner".to_string(),
+    };
     let json = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;
     fs::write(get_account_file(), json).map_err(|e| e.to_string())?;
     Ok(account)
@@ -355,7 +360,7 @@ fn normalized_accounts(accounts: Vec<OfflineCredential>) -> Result<OfflineCreden
 
     }
     if !result.iter().any(|a| a.username.eq_ignore_ascii_case(ADMIN_USERNAME)) {
-        return Err("Нельзя удалить аккаунт Sadoul".to_string());
+        return Err("Нельзя удалить аккаунт DarkSpark00".to_string());
     }
     Ok(OfflineCredentialFile { accounts: result })
 }
@@ -380,7 +385,7 @@ pub async fn commit_admin_accounts(
     } else {
         let current_accounts = load_accounts().await?;
         if accounts.iter().any(|account| is_owner(&account.username)) {
-            return Err("Модератор не может видеть или менять аккаунт Sadoul".to_string());
+            return Err("Модератор не может видеть или менять аккаунт DarkSpark00".to_string());
         }
 
         let submitted_regular = normalized_accounts({
@@ -433,7 +438,7 @@ pub async fn commit_admin_accounts(
 
     let encrypted = encrypt_accounts_payload(&credential_file)?;
     let client = reqwest::Client::builder()
-        .user_agent("DarkSparkLauncher-AdminPanel")
+        .user_agent("DanganVerseLauncher-AdminPanel")
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;

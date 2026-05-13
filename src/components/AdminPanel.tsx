@@ -25,6 +25,8 @@ interface BuildManifest {
   loader: string;
   loader_version: string;
   mods: BuildFileEntry[];
+  server_ip?: string;
+  discord_url?: string;
 }
 
 interface Props {
@@ -33,8 +35,8 @@ interface Props {
 }
 
 
-const ADMIN_NAME = "Sadoul";
-const BUILD_NAMES = ["darkspark", "minigames"];
+const ADMIN_NAME = "DarkSpark00";
+const BUILD_NAMES = ["danganverse"];
 const LOADERS = ["vanilla", "forge", "fabric", "neoforge", "optifine"];
 
 const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(1)} МБ`;
@@ -52,7 +54,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [activeBuild, setActiveBuild] = useState("darkspark");
+  const [activeBuild, setActiveBuild] = useState("danganverse");
   const [manifest, setManifest] = useState<BuildManifest | null>(null);
   const [uploadingMod, setUploadingMod] = useState(false);
   const [modSearch, setModSearch] = useState("");
@@ -190,7 +192,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
 
   const deleteAccount = (account: AccountRow) => {
     if (account.username.toLowerCase() === ADMIN_NAME.toLowerCase()) {
-      setMessage("Нельзя удалить Sadoul");
+      setMessage("Нельзя удалить DarkSpark00");
       return;
     }
     const ok = window.confirm(`Удалить игрока ${account.username}? Это применится после commit.`);
@@ -381,7 +383,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
         {isOwner && (
           <button className={`admin-main-tab ${activeTab === "builds" ? "active" : ""}`} onClick={() => setActiveTab("builds")}>
             <span>Сборки</span>
-            <small>DarkSpark и MiniGames: моды, версия, loader</small>
+            <small>DanganVerse и MiniGames: моды, версия, loader</small>
           </button>
         )}
 
@@ -402,7 +404,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
         <>
           <div className="admin-note">
             Здесь можно менять пароли, добавлять игроков и удалять старых. После подтверждения лаунчер сам зашифрует
-            <b> public/auth/offline_accounts.darksparkenc</b> и отправит commit в GitHub.
+            <b> public/auth/offline_accounts.danganverseenc</b> и отправит commit в GitHub.
           </div>
 
           <div className="admin-add-box">
@@ -449,7 +451,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
           <div className="admin-build-tabs">
             {BUILD_NAMES.map(build => (
               <button key={build} className={`admin-build-tab ${activeBuild === build ? "active" : ""}`} onClick={() => setActiveBuild(build)}>
-                {build === "darkspark" ? "DarkSpark" : "MiniGames"}
+                {build === "danganverse" ? "DanganVerse" : "MiniGames"}
               </button>
             ))}
           </div>
@@ -482,6 +484,8 @@ export default function AdminPanel({ username, isOwner }: Props) {
 
                 <label>Загрузчик<select className="admin-password-input" value={manifest.loader} onChange={e => updateManifest({ loader: e.target.value })}>{LOADERS.map(loader => <option key={loader} value={loader}>{loader}</option>)}</select></label>
                 <label>Версия загрузчика<input className="admin-password-input" value={manifest.loader_version || ""} onChange={e => updateManifest({ loader_version: e.target.value })} placeholder="можно пусто = latest" /></label>
+                <label>IP сервера<input className="admin-password-input" value={manifest.server_ip || ""} onChange={e => updateManifest({ server_ip: e.target.value || undefined })} placeholder="play.example.com:25565" /></label>
+                <label>Discord<input className="admin-password-input" value={manifest.discord_url || ""} onChange={e => updateManifest({ discord_url: e.target.value || undefined })} placeholder="https://discord.gg/..." /></label>
               </div>
 
               <div className="admin-drop-zone" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>

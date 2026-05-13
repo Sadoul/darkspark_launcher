@@ -43,11 +43,11 @@ interface ModpackConfig {
 }
 
 const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
-  darkspark: {
-    title: "DarkSpark",
+  danganverse: {
+    title: "DanganVerse",
     description: "Погрузитесь в мир ролевых приключений на Fabric 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
-    githubRepo: "Sadoul/darkspark_modpack",
-    modpackName: "darkspark",
+    githubRepo: "Sadoul/danganverse_modpack",
+    modpackName: "danganverse",
     defaultVersion: "fabric-1.20.1",
     mcVersion: "1.20.1",
     bg: ["/backgrounds/rpworld.jpg", "/backgrounds/rpworld2.jpg"],
@@ -86,7 +86,7 @@ export default function GamePanel({
     defaultVersion: customPack.loader === "vanilla" ? customPack.mc_version : `${customPack.loader}-${customPack.mc_version}`,
     mcVersion: customPack.mc_version,
     bg: ["/backgrounds/custom.jpg"],
-  } : (MODPACK_CONFIGS[page] || MODPACK_CONFIGS.darkspark);
+  } : (MODPACK_CONFIGS[page] || MODPACK_CONFIGS.danganverse);
 
 
   const bgImage = useMemo(() => {

@@ -3,9 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import type { CustomModpack } from "../App";
 
-const NAV_ORDER_STORAGE_KEY = "darkspark_nav_order";
+const NAV_ORDER_STORAGE_KEY = "danganverse_nav_order";
 
-export type Page = "darkspark" | "minigames" | "custom" | "settings" | "admin" | `custom:${string}`;
+export type Page = "danganverse" | "custom" | "settings" | "admin" | `custom:${string}`;
 
 interface SidebarProps {
   currentPage: Page;
@@ -70,15 +70,14 @@ type NavItem = { id: Page; label: string; icon: React.ReactElement; locked?: boo
 type ContextMenuState = { x: number; y: number; item: NavItem } | null;
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "darkspark",   label: "DarkSpark",      icon: <IconGlobe /> },
-  { id: "minigames", label: "Мини-игры",    icon: <IconZap />, locked: true },
+  { id: "danganverse", label: "DanganVerse", icon: <IconGlobe /> },
   { id: "custom",    label: "Свой модпак",  icon: <IconBox /> },
   { id: "settings",  label: "Настройки",    icon: <IconSettings /> },
 ];
 
-const DISCORD_URL = "https://discord.gg/DnVNeBYzMM";
+const DISCORD_URL_STORAGE = "danganverse_discord_url";
 
-export default function Sidebar({ currentPage, onPageChange, account, onLogout, avatarUrl, customModpacks, onConfigurePage, onDeleteBuiltinModpack, onDeleteCustomModpack }: SidebarProps) {
+export default function Sidebar({ currentPage, onPageChange, account, onLogout, avatarUrl, customModpacks, onConfigurePage, onDeleteBuiltinModpack, onDeleteCustomModpack, discordUrl }: SidebarProps & { discordUrl?: string }) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [navOrder, setNavOrder] = useState<string[]>(() => {
     try {
@@ -258,7 +257,8 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
     setContextMenu({ x: event.clientX, y: event.clientY, item });
   };
   const handleDiscord = async () => {
-    try { await invoke("open_url", { url: DISCORD_URL }); } catch { window.open(DISCORD_URL, "_blank"); }
+    const url = discordUrl || localStorage.getItem(DISCORD_URL_STORAGE) || "https://discord.gg/yvFE4rjnjf";
+    try { await invoke("open_url", { url }); } catch { window.open(url, "_blank"); }
   };
 
   const handleOpenFolder = async () => {
@@ -271,9 +271,9 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
     <aside className="sidebar">
       
       <div className="sidebar-logo">
-        <img src="/icons/Inside.png" alt="DarkSpark" className="sidebar-logo-img" draggable={false} />
+        <img src="/icons/Inside.png" alt="DanganVerse" className="sidebar-logo-img" draggable={false} />
         <div className="sidebar-logo-text">
-          <div className="sidebar-logo-name">DarkSpark</div>
+          <div className="sidebar-logo-name">DanganVerse</div>
           <div className="sidebar-logo-sub">Launcher</div>
         </div>
       </div>
@@ -334,20 +334,19 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
                 onConfigurePage(contextMenu.item.id);
                 setContextMenu(null);
               }}
-              disabled={contextMenu.item.id === "minigames"}
+              disabled={contextMenu.item.id === "custom" && !contextMenu.item.customName}
             >
-              Настроить {contextMenu.item.id === "minigames" && <span className="context-lock"><IconLock /></span>}
+              Настроить {contextMenu.item.id === "custom" && !contextMenu.item.customName && <span className="context-lock"><IconLock /></span>}
             </button>
-            {(contextMenu.item.id === "darkspark" || contextMenu.item.id === "minigames") && (
+            {contextMenu.item.id === "danganverse" && (
               <button
                 className="sidebar-context-item danger"
-                disabled={contextMenu.item.id === "minigames"}
                 onClick={() => {
                   onDeleteBuiltinModpack(contextMenu.item.id);
                   setContextMenu(null);
                 }}
               >
-                Удалить сборку {contextMenu.item.id === "minigames" && <span className="context-lock"><IconLock /></span>}
+                Удалить сборку
               </button>
             )}
             {contextMenu.item.customName && (
@@ -385,7 +384,7 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
         <motion.button
           className="sidebar-icon-btn"
           onClick={handleDiscord}
-          title="Discord сервер DarkSpark"
+          title="Discord сервер DanganVerse"
           whileHover={{ scale: 1.08 }}
           whileTap={{ scale: 0.93 }}
           style={{ flex: 1 }}
@@ -407,7 +406,7 @@ export default function Sidebar({ currentPage, onPageChange, account, onLogout, 
           </div>
           <div className="account-info">
             <div className="account-name">{account.username}</div>
-            <div className="account-type">{account.account_type === "offline" ? "Офлайн" : "Microsoft"}</div>
+            <div className="account-type">{account.account_type === "offline" ? "Офлайн" : account.account_type === "danganverse" ? "DanganVerse" : "Microsoft"}</div>
           </div>
           <motion.button
             className="logout-btn"

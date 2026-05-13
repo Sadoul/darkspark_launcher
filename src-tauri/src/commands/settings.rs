@@ -6,7 +6,7 @@ use tauri::AppHandle;
 fn data_dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
 }
 
 fn path_to_data_url(path: &Path) -> Option<String> {

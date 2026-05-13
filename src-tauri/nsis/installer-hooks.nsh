@@ -1,9 +1,9 @@
 ; ============================================================
-; DarkSpark Launcher - Custom NSIS Installer Hooks
+; DanganVerse Launcher - Custom NSIS Installer Hooks
 ; ============================================================
 !macro NSIS_HOOK_PREINSTALL
   ; Silent uninstall of previous versions
-  ReadRegStr $R0 SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher" "UninstallString"
+  ReadRegStr $R0 SHCTX "Software\Microsoft\Windows\CurrentVersion\Uninstall\DanganVerse Launcher" "UninstallString"
   ${If} $R0 != ""
     ExecWait '$R0 /S _?=$INSTDIR'
   ${EndIf}

@@ -1,4 +1,4 @@
-# release.ps1 - локальная сборка и публикация релиза DarkSpark Launcher
+# release.ps1 - локальная сборка и публикация релиза DanganVerse Launcher
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -9,7 +9,7 @@ $TAG     = "v$VERSION"
 
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "  DarkSpark Launcher - Release $TAG" -ForegroundColor Cyan
+Write-Host "  DanganVerse Launcher - Release $TAG" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -40,13 +40,13 @@ if (-not $nsisFiles) { throw "NSIS exe не найден" }
 Write-Host "  -> Installer: $($nsisFiles[0].Name)" -ForegroundColor DarkGray
 
 Write-Host ""
-Write-Host "[3/4] Сборка DarkSpark-Launcher.exe (stub)..." -ForegroundColor Green
+Write-Host "[3/4] Сборка DanganVerse-Launcher.exe (stub)..." -ForegroundColor Green
 Push-Location stub-rs
 cargo build --release
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "Ошибка сборки stub" }
 Pop-Location
 
-$stubExe = "stub-rs\target\release\DarkSpark-Launcher.exe"
+$stubExe = "stub-rs\target\release\DanganVerse-Launcher.exe"
 if (-not (Test-Path $stubExe)) { throw "Stub exe не найден: $stubExe" }
 
 Write-Host ""
@@ -64,7 +64,7 @@ if ($LASTEXITCODE -ne 0) { throw "Ошибка git push" }
 
 $releaseFiles = @($nsisFiles[0].FullName, (Resolve-Path $stubExe).Path)
 gh release create $TAG `
-    --title "DarkSpark Launcher $TAG" `
+    --title "DanganVerse Launcher $TAG" `
     --notes "Обновление лаунчера до версии $TAG" `
     @releaseFiles
 

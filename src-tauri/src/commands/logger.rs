@@ -8,7 +8,7 @@ static LOGGING_ENABLED: Mutex<bool> = Mutex::new(true);
 fn log_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
         .join("launcher.log")
 }
 

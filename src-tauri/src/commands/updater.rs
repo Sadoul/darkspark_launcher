@@ -41,7 +41,7 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
 }
 
 
@@ -125,7 +125,7 @@ pub async fn check_launcher_update() -> Result<UpdateInfo, String> {
     launcher_log(&format!("[updater] Checking for updates. Current version: {}", CURRENT_VERSION));
 
     let client = reqwest::Client::builder()
-        .user_agent("DarkSparkLauncher/1.0")
+        .user_agent("DanganVerseLauncher/1.0")
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
@@ -250,7 +250,7 @@ pub async fn update_launcher(app: tauri::AppHandle) -> Result<String, String> {
     emit("downloading", 0, info.file_size, 0, "Начало скачивания...");
 
     let client = reqwest::Client::builder()
-        .user_agent("DarkSparkLauncher/1.0")
+        .user_agent("DanganVerseLauncher/1.0")
         .build()
         .map_err(|e| e.to_string())?;
 

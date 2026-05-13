@@ -1,4 +1,4 @@
-name: Build and Release DarkSpark Launcher
+name: Build and Release DanganVerse Launcher
 
 on:
   push:
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: stub-exe
-          path: stub-rs/target/release/DarkSpark-Launcher.exe
+          path: stub-rs/target/release/DanganVerse-Launcher.exe
           retention-days: 1
 
   release:
@@ -104,12 +104,12 @@ jobs:
         run: ls -la dist/
       - uses: softprops/action-gh-release@v2
         with:
-          name: "DarkSpark Launcher ${{ github.ref_name }}"
+          name: "DanganVerse Launcher ${{ github.ref_name }}"
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            dist/stub/DarkSpark-Launcher.exe
+            dist/stub/DanganVerse-Launcher.exe
             dist/main/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

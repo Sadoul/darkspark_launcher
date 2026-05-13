@@ -7,7 +7,7 @@ use std::io::Write;
 
 
 const BUILD_BRANCH: &str = "main";
-const USER_AGENT: &str = "DarkSparkLauncher-BuildAdmin";
+const USER_AGENT: &str = "DanganVerseLauncher-BuildAdmin";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BuildManifest {
@@ -18,6 +18,10 @@ pub struct BuildManifest {
     pub loader_version: String,
     #[serde(default)]
     pub mods: Vec<BuildFileEntry>,
+    #[serde(default)]
+    pub server_ip: Option<String>,
+    #[serde(default)]
+    pub discord_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,7 +49,7 @@ fn default_enabled() -> bool { true }
 fn launcher_data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
 }
 
 fn download_dir_file() -> PathBuf {
@@ -55,7 +59,7 @@ fn download_dir_file() -> PathBuf {
 fn default_download_dir() -> PathBuf {
     dirs::download_dir()
         .unwrap_or_else(|| launcher_data_dir())
-        .join("DarkSpark Downloads")
+        .join("DanganVerse Downloads")
 }
 
 fn read_download_dir() -> PathBuf {
@@ -80,8 +84,7 @@ fn safe_file_name(name: &str) -> String {
 
 fn repo_for_build(build: &str) -> Result<&'static str, String> {
     match build.to_lowercase().as_str() {
-        "darkspark" => Ok("Sadoul/rpworld"),
-        "minigames" => Ok("Sadoul/minigames"),
+        "danganverse" => Ok("Sadoul/danganverse_modpack"),
         _ => Err(format!("Неизвестная сборка: {build}")),
     }
 }
@@ -167,21 +170,14 @@ async fn put_github_file(
 }
 
 fn default_manifest(build: &str) -> BuildManifest {
-    match build.to_lowercase().as_str() {
-        "minigames" => BuildManifest {
-            name: "minigames".to_string(),
-            minecraft_version: "1.20.1".to_string(),
-            loader: "vanilla".to_string(),
-            loader_version: String::new(),
-            mods: vec![],
-        },
-        _ => BuildManifest {
-            name: "darkspark".to_string(),
-            minecraft_version: "1.20.1".to_string(),
-            loader: "forge".to_string(),
-            loader_version: String::new(),
-            mods: vec![],
-        },
+    BuildManifest {
+        name: build.to_string(),
+        minecraft_version: "1.20.1".to_string(),
+        loader: "fabric".to_string(),
+        loader_version: String::new(),
+        mods: vec![],
+        server_ip: None,
+        discord_url: None,
     }
 }
 

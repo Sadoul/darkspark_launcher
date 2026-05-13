@@ -1,4 +1,4 @@
-//! DarkSpark Launcher Stub — single exe bootstrap
+//! DanganVerse Launcher Stub — single exe bootstrap
 //! Checks GitHub for updates, self-updates, and launches the main launcher.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -20,24 +20,25 @@ struct GitHubAsset {
 }
 
 const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
-const STUB_ASSET_NAME: &str = "DarkSpark-Stub.exe";
-const LAUNCHER_EXE: &str = "darkspark-launcher.exe";
-const LAUNCHER_DIR: &str = "DarkSpark Launcher";
-const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher";
+const STUB_ASSET_NAME: &str = "DanganVerse-Stub.exe";
+const LAUNCHER_EXE: &str = "danganverse-launcher.exe";
+const LAUNCHER_DIR: &str = "DanganVerse Launcher";
+const REG_KEY_NEW: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DanganVerse Launcher";
+const REG_KEY_OLD: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher";
 const STUB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn log(msg: &str) {
-    let path = std::env::temp_dir().join("darkspark_stub.log");
+    let path = std::env::temp_dir().join("danganverse_stub.log");
     let line = format!("[{}] {}\r\n", chrono::Local::now().format("%H:%M:%S"), msg);
     let _ = std::fs::OpenOptions::new().create(true).append(true).open(&path)
         .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
 }
 
 fn main() {
-    log(&format!("DarkSpark-Stub v{} starting", STUB_VERSION));
+    log(&format!("DanganVerse-Stub v{} starting", STUB_VERSION));
 
     let client = match reqwest::blocking::Client::builder()
-        .user_agent("DarkSpark-Stub/1.0")
+        .user_agent("DanganVerse-Stub/1.0")
         .timeout(std::time::Duration::from_secs(20))
         .build()
     {
@@ -112,7 +113,7 @@ fn main() {
 
     let launcher_asset = release.assets.iter().find(|a| {
         let n = a.name.to_lowercase();
-        n.contains("darkspark-launcher") && n.ends_with(".exe") && n != STUB_ASSET_NAME.to_lowercase()
+        n.contains("danganverse-launcher") && n.ends_with(".exe") && n != STUB_ASSET_NAME.to_lowercase()
     });
 
     if let Some(asset) = launcher_asset {
@@ -193,7 +194,7 @@ fn update_self(tmp: &PathBuf) -> bool {
         Ok(p) => p,
         Err(_) => return false,
     };
-    let backup = std::env::temp_dir().join("darkspark_stub_old.exe");
+    let backup = std::env::temp_dir().join("danganverse_stub_old.exe");
 
     // Remove old backup first
     let _ = std::fs::remove_file(&backup);
@@ -241,20 +242,28 @@ fn find_launcher() -> Option<PathBuf> {
     use winreg::enums::*;
     use winreg::RegKey;
 
+    // Try new registry key first, then old fallback
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    if let Ok(key) = hkcu.open_subkey(REG_KEY) {
-        if let Ok(raw) = key.get_value::<String, _>("InstallLocation") {
-            let dir = raw.trim_matches('"');
-            let exe = PathBuf::from(dir).join(LAUNCHER_EXE);
-            if exe.exists() {
-                return Some(exe);
+    for reg_key in [REG_KEY_NEW, REG_KEY_OLD] {
+        if let Ok(key) = hkcu.open_subkey(reg_key) {
+            if let Ok(raw) = key.get_value::<String, _>("InstallLocation") {
+                let dir = raw.trim_matches('"');
+                let exe = PathBuf::from(dir).join(LAUNCHER_EXE);
+                if exe.exists() {
+                    return Some(exe);
+                }
             }
         }
     }
 
+    // Try new and old directory paths
+    let old_launcher_exe = "darkspark-launcher.exe";
     let candidates = [
-        dirs::data_local_dir().map(|d| d.join(&LAUNCHER_DIR).join(LAUNCHER_EXE)),
-        dirs::data_local_dir().map(|d| d.join("Programs").join(&LAUNCHER_DIR).join(LAUNCHER_EXE)),
+        dirs::data_local_dir().map(|d| d.join(LAUNCHER_DIR).join(LAUNCHER_EXE)),
+        dirs::data_local_dir().map(|d| d.join("Programs").join(LAUNCHER_DIR).join(LAUNCHER_EXE)),
+        // Old paths as fallback
+        dirs::data_local_dir().map(|d| d.join("DarkSpark Launcher").join(old_launcher_exe)),
+        dirs::data_local_dir().map(|d| d.join("Programs").join("DarkSpark Launcher").join(old_launcher_exe)),
     ];
     for candidate in candidates.into_iter().flatten() {
         if candidate.exists() {

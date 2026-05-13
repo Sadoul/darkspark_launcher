@@ -85,7 +85,7 @@ pub async fn find_java() -> Result<JavaInfo, String> {
 fn get_bundled_java_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
         .join("java")
         .join("bin")
         .join("java.exe")
@@ -145,7 +145,7 @@ pub async fn download_java() -> Result<JavaInfo, String> {
 
     let java_base_dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".darkspark")
+        .join(".danganverse")
         .join("java");
 
     if java_base_dir.exists() {

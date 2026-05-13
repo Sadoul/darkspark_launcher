@@ -1,8 +1,8 @@
 [package]
-name = "darkspark-stub"
+name = "danganverse-stub"
 version = "2.70.10"
 edition = "2021"
-description = "DarkSpark Launcher Stub — checks install and launches or downloads the launcher"
+description = "DanganVerse Launcher Stub
 
 [[bin]]
 name = "DarkSpark-Launcher"
