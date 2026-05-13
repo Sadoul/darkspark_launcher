@@ -4,8 +4,7 @@ import type { Page } from "./Sidebar";
 import type { CustomModpack } from "../App";
 
 const BUILTIN_CONFIGS: Record<string, { title: string; loader: string; mcVersion: string; loaderVersion: string; memory: number; jvmArgs: string }> = {
-  darkspark: { title: "DarkSpark", loader: "forge", mcVersion: "1.20.1", loaderVersion: "47.4.20", memory: 4096, jvmArgs: "" },
-  minigames: { title: "Мини-игры", loader: "forge", mcVersion: "1.20.1", loaderVersion: "", memory: 4096, jvmArgs: "" },
+  danganverse: { title: "DanganVerse", loader: "fabric", mcVersion: "1.20.1", loaderVersion: "", memory: 4096, jvmArgs: "" },
 };
 
 interface Props {
@@ -41,7 +40,7 @@ export default function ModpackSettingsPanel({ page, customModpacks, onBack, onC
   const [loadingLoaderVersions, setLoadingLoaderVersions] = useState(false);
 
   useEffect(() => {
-    if (!isCustom && (page === "darkspark" || page === "minigames")) {
+    if (!isCustom && page === "danganverse") {
       invoke<string>("get_builtin_modpack_dir", { modpackName: page })
         .then(setGameDir)
         .catch(() => {});
@@ -113,7 +112,7 @@ export default function ModpackSettingsPanel({ page, customModpacks, onBack, onC
   };
 
   const deletePack = async () => {
-    const title = isCustom ? name : (page === "darkspark" ? "darkspark" : "Мини-игры");
+    const title = isCustom ? name : "danganverse";
     if (!confirm(`Удалить установленную сборку «${title}» с компьютера? Лаунчер останется.`)) return;
     try {
       if (isCustom) {

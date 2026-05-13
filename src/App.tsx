@@ -326,7 +326,7 @@ export default function App() {
           }}
           onDeleteBuiltinModpack={deleteBuiltinModpack}
           onDeleteCustomModpack={deleteCustomModpack}
-          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL}
+          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL_FALLBACK}
         />
 
         <div className="content-area">
