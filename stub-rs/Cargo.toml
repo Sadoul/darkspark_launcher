@@ -1,6 +1,6 @@
 [package]
 name = "danganverse-stub"
-version = "2.70.16"
+version = "2.70.17"
 edition = "2021"
 description = "DanganVerse Launcher Stub"
 
