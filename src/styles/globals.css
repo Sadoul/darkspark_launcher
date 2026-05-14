@@ -61,6 +61,30 @@
   --ease:       0.3s ease;
 }
 
+[data-theme="light"] .content-area {
+  --bg-primary:        rgb(23, 49, 48);
+  --bg-secondary:      rgb(18, 40, 39);
+  --bg-darker:         rgb(12, 28, 27);
+  --surface:           rgba(33, 68, 67, 0.65);
+  --surface-hover:     rgba(38, 78, 77, 0.75);
+  --bg-glass:          rgba(23, 49, 48, 0.85);
+  --bg-glass-hover:    rgba(28, 58, 57, 0.92);
+  --bg-glass-active:   rgba(33, 68, 67, 0.97);
+  --bg-glass-solid:    rgba(23, 49, 48, 0.93);
+  --bg-glass-solid-h:  rgba(28, 58, 57, 0.97);
+  --bg-overlay:        rgba(189, 22, 51, 0.15);
+  --border:            rgba(189, 22, 51, 0.20);
+  --border-hover:      rgba(189, 22, 51, 0.40);
+  --text:              #FFFFFF;
+  --text-2:            #E8E8E8;
+  --text-muted:        #AAAAAA;
+  --text-on-accent:    #FFFFFF;
+  --accent-green:      rgb(189, 22, 51);
+  --shadow-sm:         0 1px 4px  rgba(0,0,0,0.6);
+  --shadow-md:         0 4px 14px rgba(0,0,0,0.7);
+  --shadow-lg:         0 8px 28px rgba(0,0,0,0.8);
+  background: rgb(23, 49, 48);
+}
 
 [data-theme="light"] {
   --bg-primary:          #FAF6F1;
@@ -204,17 +228,18 @@ button { font-family: inherit; }
 }
 .titlebar-btn:hover { background: var(--bg-overlay); color: var(--text); }
 .titlebar-btn svg { width: 15px; height: 15px; }
-.titlebar-btn.close:hover { background: rgba(192,57,43,0.15) !important; color: #fff !important; }
-.titlebar-btn.close {
-  position: relative;
-}
-.titlebar-btn.close::before {
-  content: '';
-  position: absolute;
-  top: -12px;
-  right: -10px;
-  bottom: -12px;
-  left: -6px;
+.titlebar-btn.close:hover,
+.titlebar-btn.close.hovered { background: rgba(192,57,43,0.15) !important; color: #fff !important; }
+
+.close-corner-hitbox {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 54px;
+  height: 46px;
+  z-index: 10000;
+  cursor: pointer;
+  background: transparent;
 }
 .titlebar-btn.theme-toggle { color: var(--accent); }
 .titlebar-btn.theme-toggle:hover { background: var(--accent-glow); color: var(--accent); }

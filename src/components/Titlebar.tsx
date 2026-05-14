@@ -9,6 +9,7 @@ interface TitlebarProps {
 
 export default function Titlebar({ theme, onThemeToggle }: TitlebarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
+  const [closeCornerHovered, setCloseCornerHovered] = useState(false);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -25,6 +26,13 @@ export default function Titlebar({ theme, onThemeToggle }: TitlebarProps) {
 
   return (
     <div className="titlebar" data-tauri-drag-region>
+      {}
+      <div
+        className="close-corner-hitbox"
+        onClick={handleClose}
+        onMouseEnter={() => setCloseCornerHovered(true)}
+        onMouseLeave={() => setCloseCornerHovered(false)}
+      />
       {}
       <div className="titlebar-brand" data-tauri-drag-region />
 
@@ -94,8 +102,8 @@ export default function Titlebar({ theme, onThemeToggle }: TitlebarProps) {
 
         {}
         <motion.button
-          className="titlebar-btn close"
-          whileHover={{ scale: 1.05, backgroundColor: "#ef4444" }}
+          className={`titlebar-btn close${closeCornerHovered ? " hovered" : ""}`}
+          whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.9 }}
           onClick={handleClose}
           title="Закрыть"

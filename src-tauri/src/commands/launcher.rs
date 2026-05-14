@@ -224,7 +224,7 @@ async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> R
 
 fn build_repo_for_modpack(name: &str) -> Option<&'static str> {
     match name.to_lowercase().as_str() {
-        "danganverse" => Some("Sadoul/danganverse_modpack"),
+        "danganverse" => Some("Sadoul/darkspark_modpack"),
         _ => None,
     }
 }
