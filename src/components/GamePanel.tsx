@@ -85,7 +85,7 @@ export default function GamePanel({
     modpackName: customPack.name,
     defaultVersion: customPack.loader === "vanilla" ? customPack.mc_version : `${customPack.loader}-${customPack.mc_version}`,
     mcVersion: customPack.mc_version,
-    bg: ["/backgrounds/custom.jpg"],
+    bg: ["/backgrounds/default_background.png"],
   } : (MODPACK_CONFIGS[page] || MODPACK_CONFIGS.danganverse);
 
 

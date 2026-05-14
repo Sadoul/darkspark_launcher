@@ -418,6 +418,9 @@ button { font-family: inherit; }
   position: absolute; inset: 0;
   background: linear-gradient(to right, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0.15) 60%, transparent 100%);
 }
+.panel-bg.panel-bg-uniform::after {
+  background: rgba(0,0,0,0.52);
+}
 
 
 .play-button-hero {
@@ -864,7 +867,11 @@ button { font-family: inherit; }
 .settings-panel {
   padding: 20px 22px;
   overflow-y: auto; flex: 1;
+  position: relative; z-index: 1;
   background: linear-gradient(160deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+}
+.game-panel.has-bg .settings-panel {
+  background: transparent;
 }
 .settings-panel h2 { font-size: 18px; font-weight: 700; margin-bottom: 18px; color: var(--text); }
 
@@ -1007,6 +1014,7 @@ button { font-family: inherit; }
 .admin-panel {
   color: var(--text);
   padding: 20px;
+  position: relative; z-index: 1;
 }
 
 .admin-main-tabs {
@@ -1377,6 +1385,7 @@ button { font-family: inherit; }
   flex: 1;
   position: relative;
   z-index: 1;
+  background: transparent;
   color: var(--text);
   display: flex;
   flex-direction: column;

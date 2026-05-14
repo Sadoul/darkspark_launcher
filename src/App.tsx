@@ -357,12 +357,13 @@ export default function App() {
             ) : currentPage === "settings" && account ? (
               <motion.div
                 key="settings"
-                className="game-panel"
+                className="game-panel has-bg"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
               >
+                <div className="panel-bg panel-bg-uniform" style={{ backgroundImage: "url(/backgrounds/default_background.png)" }} />
                 <SettingsPanel
                   javaPath={javaPath}
                   javaVersion={javaVersion}
@@ -389,16 +390,27 @@ export default function App() {
             ) : currentPage === "admin" && account?.is_admin ? (
               <motion.div
                 key="admin"
-                className="game-panel"
+                className="game-panel has-bg"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
                 transition={{ duration: 0.3 }}
               >
+                <div className="panel-bg panel-bg-uniform" style={{ backgroundImage: "url(/backgrounds/default_background.png)" }} />
                 <AdminPanel username={account.username} isOwner={!!account.is_owner} />
               </motion.div>
             ) : currentPage === "custom" ? (
-              <CustomModpackPanel key="custom" onInstalled={loadCustomModpacks} />
+              <motion.div
+                key="custom"
+                className="game-panel has-bg"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <div className="panel-bg panel-bg-uniform" style={{ backgroundImage: "url(/backgrounds/default_background.png)" }} />
+                <CustomModpackPanel onInstalled={loadCustomModpacks} />
+              </motion.div>
             ) : currentPage !== "settings" ? (
               <GamePanel
                 key={currentPage}
