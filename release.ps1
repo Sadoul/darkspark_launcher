@@ -59,8 +59,10 @@ if ($staged) {
 }
 
 git tag $TAG
-git push origin main --tags
-if ($LASTEXITCODE -ne 0) { throw "Ошибка git push" }
+git push origin main
+if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (main)" }
+git push origin "refs/tags/$TAG"
+if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (tag $TAG)" }
 
 $releaseFiles = @($nsisFiles[0].FullName, (Resolve-Path $stubExe).Path)
 gh release create $TAG `

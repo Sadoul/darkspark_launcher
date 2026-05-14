@@ -40,60 +40,35 @@ fn log(msg: &str) {
 fn main() {
     log(&format!("DanganVerse-Stub v{} starting", STUB_VERSION));
 
-    // No network? Just launch whatever is already installed.
+    // Fast path: launcher already installed — launch immediately, no network needed.
+    if let Some(path) = find_launcher() {
+        log(&format!("Launcher found (fast path): {:?}", path));
+        close_running_launcher();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = Command::new(&path).spawn();
+        exit(0);
+    }
+
+    // Launcher not installed — fetch release and install it.
     let client = match reqwest::blocking::Client::builder()
         .user_agent("DanganVerse-Stub/1.0")
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(8))
         .build()
     {
         Ok(c) => c,
-        Err(_) => {
-            launch_if_installed();
-            exit(0);
-        }
+        Err(_) => { exit(1); }
     };
 
-    // 1. Fetch latest release info
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
     let release = match fetch_release(&client, &api_url) {
         Some(r) => r,
         None => {
-            // No network / rate-limited — just launch whatever is installed
-            launch_if_installed();
-            exit(0);
+            show_error("Не удалось подключиться к GitHub. Проверьте интернет.");
+            exit(1);
         }
     };
 
-    let latest_tag = release.tag_name.trim_start_matches('v').to_string();
-    let current_ver = STUB_VERSION.trim_start_matches('v');
-    log(&format!("Stub local={}, remote={}", current_ver, latest_tag));
-
-    // 2. Self-update stub if a newer version is available
-    if compare_versions(&latest_tag, current_ver) > 0 {
-        log("Newer stub available — self-updating");
-        if let Some(asset) = release.assets.iter().find(|a| a.name == STUB_ASSET_NAME) {
-            if let Some(tmp) = download_file(&client, &asset.browser_download_url, "danganverse_stub_new.exe") {
-                if update_self(&tmp) {
-                    log("Self-update OK — relaunching");
-                    if let Ok(new_exe) = std::env::current_exe() {
-                        let _ = Command::new(&new_exe)
-                            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
-                            .spawn();
-                    }
-                    exit(0);
-                }
-            }
-        }
-    }
-
-    // 3. Launcher already installed — just launch it
-    if let Some(path) = find_launcher() {
-        log(&format!("Launcher found: {:?}", path));
-        close_running_launcher();
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        let _ = Command::new(&path).spawn();
-        exit(0);
-    }
+    log(&format!("Release: {}", release.tag_name));
 
     // 4. Launcher NOT installed — find the NSIS setup exe in release assets and run it silently
     log("Launcher not installed — looking for NSIS installer in release assets");
@@ -143,23 +118,6 @@ fn fetch_release(client: &reqwest::blocking::Client, url: &str) -> Option<GitHub
     resp.json().ok()
 }
 
-fn compare_versions(latest: &str, current: &str) -> i32 {
-    let parse = |v: &str| {
-        v.split('.').map(|s| s.parse::<u64>().unwrap_or(0)).collect::<Vec<u64>>()
-    };
-    let a = parse(latest);
-    let b = parse(current);
-    let len = a.len().max(b.len());
-    for i in 0..len {
-        let av = a.get(i).unwrap_or(&0);
-        let bv = b.get(i).unwrap_or(&0);
-        if av != bv {
-            return if av > bv { 1 } else { -1 };
-        }
-    }
-    0
-}
-
 fn download_file(client: &reqwest::blocking::Client, url: &str, tmp_name: &str) -> Option<PathBuf> {
     let resp = client.get(url).send().ok()?;
     if !resp.status().is_success() {
@@ -169,22 +127,6 @@ fn download_file(client: &reqwest::blocking::Client, url: &str, tmp_name: &str) 
     let tmp = std::env::temp_dir().join(tmp_name);
     std::fs::write(&tmp, &bytes).ok()?;
     Some(tmp)
-}
-
-fn update_self(tmp: &PathBuf) -> bool {
-    let self_exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return false,
-    };
-    let backup = std::env::temp_dir().join("danganverse_stub_old.exe");
-    let _ = std::fs::remove_file(&backup);
-    std::fs::rename(&self_exe, &backup).ok();
-    if std::fs::copy(tmp, &self_exe).is_err() {
-        let _ = std::fs::rename(&backup, &self_exe);
-        return false;
-    }
-    let _ = std::fs::remove_file(&backup);
-    true
 }
 
 fn find_launcher() -> Option<PathBuf> {
