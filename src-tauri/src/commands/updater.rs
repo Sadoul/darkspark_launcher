@@ -326,17 +326,19 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
     #[cfg(windows)]
     installer_command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
 
-    installer_command
+    let installer_child = installer_command
         .spawn()
         .map_err(|e| format!("Не удалось запустить установщик обновления: {e}"))?;
 
-    update_log("[updater] NSIS installer started, scheduling relaunch in 20s");
+    let installer_pid = installer_child.id();
+    update_log(&format!("[updater] NSIS installer started PID={}, scheduling relaunch after it finishes", installer_pid));
 
-    // Schedule a delayed relaunch after the NSIS installer finishes.
+    // Wait for NSIS to finish, then relaunch — same pattern as game watcher.
     #[cfg(windows)]
     if let Ok(exe) = std::env::current_exe() {
         let script = format!(
-            "Start-Sleep -Seconds 20; Start-Process -FilePath '{}'",
+            "Wait-Process -Id {} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Start-Process -FilePath '{}'",
+            installer_pid,
             exe.to_string_lossy().replace('\'', "''")
         );
         let _ = Command::new("powershell.exe")
@@ -346,7 +348,7 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
-        update_log(&format!("[updater] Relaunch scheduled via PowerShell: {}", exe.display()));
+        update_log(&format!("[updater] Relaunch watcher started for PID={}: {}", installer_pid, exe.display()));
     }
 
     tokio::spawn(async move {
