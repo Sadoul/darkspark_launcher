@@ -1,6 +1,6 @@
 [package]
 name = "danganverse-launcher"
-version = "2.70.18"
+version = "2.70.19"
 description = "DanganVerse Minecraft Launcher"
 authors = ["Sadoul"]
 edition = "2021"
