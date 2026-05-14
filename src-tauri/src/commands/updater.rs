@@ -333,21 +333,20 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
     update_log("[updater] NSIS installer started, scheduling relaunch in 20s");
 
     // Schedule a delayed relaunch after the NSIS installer finishes.
-    // ping -n 21 ≈ 20-second wait (each ping = ~1 sec). start "" relaunches the new exe.
     #[cfg(windows)]
     if let Ok(exe) = std::env::current_exe() {
-        let cmd = format!(
-            "ping -n 21 127.0.0.1 > NUL & start \"\" \"{}\"",
-            exe.display()
+        let script = format!(
+            "Start-Sleep -Seconds 20; Start-Process -FilePath '{}'",
+            exe.to_string_lossy().replace('\'', "''")
         );
-        let _ = Command::new("cmd")
-            .args(["/c", &cmd])
+        let _ = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
-        update_log(&format!("[updater] Relaunch scheduled: {}", exe.display()));
+        update_log(&format!("[updater] Relaunch scheduled via PowerShell: {}", exe.display()));
     }
 
     tokio::spawn(async move {
