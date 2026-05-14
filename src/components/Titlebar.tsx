@@ -27,11 +27,12 @@ export default function Titlebar({ theme, onThemeToggle }: TitlebarProps) {
   return (
     <div className="titlebar" data-tauri-drag-region>
       {}
-      <div
+      <button
         className="close-corner-hitbox"
         onClick={handleClose}
         onMouseEnter={() => setCloseCornerHovered(true)}
         onMouseLeave={() => setCloseCornerHovered(false)}
+        aria-label="Закрыть"
       />
       {}
       <div className="titlebar-brand" data-tauri-drag-region />

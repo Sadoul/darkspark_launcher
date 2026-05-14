@@ -240,6 +240,9 @@ button { font-family: inherit; }
   z-index: 10000;
   cursor: pointer;
   background: transparent;
+  border: none;
+  padding: 0;
+  -webkit-app-region: no-drag;
 }
 .titlebar-btn.theme-toggle { color: var(--accent); }
 .titlebar-btn.theme-toggle:hover { background: var(--accent-glow); color: var(--accent); }

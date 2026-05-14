@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 #[cfg(windows)]
-const DETACHED_PROCESS: u32 = 0x00000008;
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 use tauri::Emitter;
 
 use super::logger::log as launcher_log;
@@ -324,7 +324,7 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
         .stderr(Stdio::null());
 
     #[cfg(windows)]
-    installer_command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    installer_command.creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB);
 
     let installer_child = installer_command
         .spawn()
@@ -343,7 +343,7 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
         );
         let _ = Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
