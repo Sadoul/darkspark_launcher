@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "danganverse-launcher"
-version = "2.70.20"
+version = "2.70.21"
 dependencies = [
  "base64 0.22.1",
  "chrono",

@@ -45,7 +45,7 @@ interface ModpackConfig {
 const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
   danganverse: {
     title: "DanganVerse",
-    description: "Погрузитесь в мир ролевых приключений на Fabric 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
+    description: "Мы — DanganVerse. РП проект в игре Майнкрафт, позволяющий вам прочувствовать атмосферу Данганронпы и иных вселенных. Разгадывайте тайны, веселитесь, испытывайте настоящие эмоции и погружайтесь в процесс вместе с нами!",
     githubRepo: "Sadoul/darkspark_modpack",
     modpackName: "danganverse",
     defaultVersion: "fabric-1.20.1",
