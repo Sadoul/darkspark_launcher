@@ -90,7 +90,7 @@ fn builtin_modpacks_root() -> PathBuf {
 
 fn sanitize_modpack_name(name: &str) -> Result<String, String> {
     match name {
-        "darkspark" | "minigames" => Ok(name.to_string()),
+        "danganverse" => Ok(name.to_string()),
         _ => Err("Эту встроенную сборку нельзя изменить этой командой".to_string()),
     }
 }

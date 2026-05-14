@@ -26,7 +26,7 @@ export default function ModpackSettingsPanel({ page, customModpacks, onBack, onC
   const [loaderVersion, setLoaderVersion] = useState(custom?.loader_version ?? builtin?.loaderVersion ?? "");
   const [memory, setMemory] = useState(() => {
     if (!isCustom) {
-      const saved = localStorage.getItem(`rpw_modpack_memory_${page}`);
+      const saved = localStorage.getItem(`darkspark_modpack_memory_${page}`);
       const parsed = saved ? Number(saved) : NaN;
       if (!Number.isNaN(parsed)) return parsed;
     }

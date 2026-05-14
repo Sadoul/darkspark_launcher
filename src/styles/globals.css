@@ -1227,6 +1227,7 @@ button { font-family: inherit; }
 .admin-build-floating-actions {
   position: static;
   margin-top: 18px;
+  margin-bottom: 16px;
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -1744,6 +1745,34 @@ button { font-family: inherit; }
   border: 2.5px solid var(--border);
   border-top: 2.5px solid var(--accent);
   border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
+.auth-modal-back {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; padding: 11px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.60);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: background var(--t), border-color var(--t), color var(--t);
+}
+.auth-modal-back::before { content: "←"; font-size: 15px; line-height: 1; }
+.auth-modal-back:hover {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.22);
+  color: rgba(255,255,255,0.90);
+}
+[data-theme="light"] .auth-modal-back {
+  border-color: var(--border);
+  background: var(--bg-glass);
+  color: var(--text-2);
+}
+[data-theme="light"] .auth-modal-back:hover {
+  background: var(--bg-glass-hover);
+  border-color: var(--border-hover);
+  color: var(--text);
 }
 
 .version-badge {
