@@ -8,7 +8,7 @@ use std::path::PathBuf;
 const ACCOUNTS_KEY: &[u8] = b"DanganVerseLauncherFriendsOnlyKey_v1";
 const ADMIN_USERNAME: &str = "DarkSpark00";
 const ADMIN_PASSWORD: &str = "Oiw$8z09o@H8";
-const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_launcher/contents/public/auth/offline_accounts.danganverseenc";
+const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_modpack/contents/offline_accounts.danganverseenc";
 const ACCOUNTS_BRANCH: &str = "main";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

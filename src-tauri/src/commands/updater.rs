@@ -330,7 +330,25 @@ fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), S
         .spawn()
         .map_err(|e| format!("Не удалось запустить установщик обновления: {e}"))?;
 
-    update_log("[updater] NSIS installer started directly, app will exit in 1 second");
+    update_log("[updater] NSIS installer started, scheduling relaunch in 20s");
+
+    // Schedule a delayed relaunch after the NSIS installer finishes.
+    // ping -n 21 ≈ 20-second wait (each ping = ~1 sec). start "" relaunches the new exe.
+    #[cfg(windows)]
+    if let Ok(exe) = std::env::current_exe() {
+        let cmd = format!(
+            "ping -n 21 127.0.0.1 > NUL & start \"\" \"{}\"",
+            exe.display()
+        );
+        let _ = Command::new("cmd")
+            .args(["/c", &cmd])
+            .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        update_log(&format!("[updater] Relaunch scheduled: {}", exe.display()));
+    }
 
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;

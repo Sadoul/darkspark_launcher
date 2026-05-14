@@ -84,7 +84,7 @@ fn safe_file_name(name: &str) -> String {
 
 fn repo_for_build(build: &str) -> Result<&'static str, String> {
     match build.to_lowercase().as_str() {
-        "danganverse" => Ok("Sadoul/danganverse_modpack"),
+        "danganverse" => Ok("Sadoul/darkspark_modpack"),
         _ => Err(format!("Неизвестная сборка: {build}")),
     }
 }

@@ -46,7 +46,7 @@ const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
   danganverse: {
     title: "DanganVerse",
     description: "Погрузитесь в мир ролевых приключений на Fabric 1.20.1 с уникальными модами, квестами и захватывающим геймплеем.",
-    githubRepo: "Sadoul/danganverse_modpack",
+    githubRepo: "Sadoul/darkspark_modpack",
     modpackName: "danganverse",
     defaultVersion: "fabric-1.20.1",
     mcVersion: "1.20.1",

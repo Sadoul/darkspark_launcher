@@ -57,8 +57,10 @@ const itemVariants = {
   }),
 };
 
+const LAST_USERNAME_KEY = "darkspark_last_username";
+
 export default function AuthPanel({ onLogin }: AuthPanelProps) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => localStorage.getItem(LAST_USERNAME_KEY) ?? "");
   const [password, setPassword] = useState("");
   const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
   const [pendingUsername, setPendingUsername] = useState("");
@@ -103,6 +105,7 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
           username: pendingUsername,
           password,
         });
+        localStorage.setItem(LAST_USERNAME_KEY, pendingUsername);
         onLogin(account);
       } catch (err) {
         setError(String(err));
@@ -121,6 +124,7 @@ export default function AuthPanel({ onLogin }: AuthPanelProps) {
     setError("");
     try {
       const account = await invoke<Account>("login_offline", { username: cleanUsername });
+      localStorage.setItem(LAST_USERNAME_KEY, cleanUsername);
       onLogin(account);
     } catch (err) {
       setError(String(err));
