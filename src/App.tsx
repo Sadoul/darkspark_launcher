@@ -234,38 +234,38 @@ export default function App() {
 
   const handleJavaChange = (path: string, version: string) => {
     setJavaPath(path); setJavaVersion(version);
-    localStorage.setItem("rpw_java_path", path);
-    localStorage.setItem("rpw_java_version", version);
+    localStorage.setItem("darkspark_java_path", path);
+    localStorage.setItem("darkspark_java_version", version);
   };
 
   const handleMemoryChange = (mem: number) => {
     setMaxMemory(mem);
-    localStorage.setItem("rpw_memory", String(mem));
+    localStorage.setItem("darkspark_memory", String(mem));
   };
 
   const handleJvmArgsChange = (args: string) => {
     setJvmArgs(args);
-    localStorage.setItem("rpw_jvm_args", args);
+    localStorage.setItem("darkspark_jvm_args", args);
   };
 
   const handleGpuModeChange = (mode: string) => {
     setGpuMode(mode);
-    localStorage.setItem("rpw_gpu_mode", mode);
+    localStorage.setItem("darkspark_gpu_mode", mode);
   };
 
   const handleAllowMultipleInstancesChange = (value: boolean) => {
     setAllowMultipleInstances(value);
-    localStorage.setItem("rpw_allow_multiple_instances", String(value));
+    localStorage.setItem("darkspark_allow_multiple_instances", String(value));
   };
 
   const handleCloseLauncherOnGameStartChange = (value: boolean) => {
     setCloseLauncherOnGameStart(value);
-    localStorage.setItem("rpw_close_launcher_on_game_start", String(value));
+    localStorage.setItem("darkspark_close_launcher_on_game_start", String(value));
   };
 
   const handleReopenLauncherAfterGameCloseChange = (value: boolean) => {
     setReopenLauncherAfterGameClose(value);
-    localStorage.setItem("rpw_reopen_launcher_after_game_close", String(value));
+    localStorage.setItem("darkspark_reopen_launcher_after_game_close", String(value));
   };
 
   const showNotification = (msg: string) => {
@@ -326,7 +326,7 @@ export default function App() {
           }}
           onDeleteBuiltinModpack={deleteBuiltinModpack}
           onDeleteCustomModpack={deleteCustomModpack}
-          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL}
+          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL_FALLBACK}
         />
 
         <div className="content-area">

@@ -1,5 +1,6 @@
 //! DanganVerse Launcher Stub — single exe bootstrap
-//! Checks GitHub for updates, self-updates, and launches the main launcher.
+//! Checks if launcher is installed, installs via NSIS if not, then launches it.
+//! On subsequent runs: just launches the already-installed launcher.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -20,12 +21,14 @@ struct GitHubAsset {
 }
 
 const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
-const STUB_ASSET_NAME: &str = "DanganVerse-Stub.exe";
+const STUB_ASSET_NAME: &str = "DanganVerse-Launcher.exe";
 const LAUNCHER_EXE: &str = "danganverse-launcher.exe";
-const LAUNCHER_DIR: &str = "DanganVerse Launcher";
-const REG_KEY_NEW: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DanganVerse Launcher";
-const REG_KEY_OLD: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DarkSpark Launcher";
+const LAUNCHER_PRODUCT_NAME: &str = "DanganVerse Launcher";
+const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DanganVerse Launcher";
 const STUB_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+const DETACHED_PROCESS: u32 = 0x00000008;
 
 fn log(msg: &str) {
     let path = std::env::temp_dir().join("danganverse_stub.log");
@@ -37,6 +40,7 @@ fn log(msg: &str) {
 fn main() {
     log(&format!("DanganVerse-Stub v{} starting", STUB_VERSION));
 
+    // No network? Just launch whatever is already installed.
     let client = match reqwest::blocking::Client::builder()
         .user_agent("DanganVerse-Stub/1.0")
         .timeout(std::time::Duration::from_secs(20))
@@ -49,31 +53,12 @@ fn main() {
         }
     };
 
-    // 1. Fetch latest release
+    // 1. Fetch latest release info
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
-
-    let resp = match client.get(&api_url).send() {
-        Ok(r) => r,
-        Err(_) => {
-            launch_if_installed();
-            exit(0);
-        }
-    };
-
-    let status = resp.status().as_u16();
-    if status == 403 || status == 429 {
-        // Rate limited — just launch whatever is installed
-        launch_if_installed();
-        exit(0);
-    }
-    if !resp.status().is_success() {
-        launch_if_installed();
-        exit(0);
-    }
-
-    let release: GitHubRelease = match resp.json() {
-        Ok(r) => r,
-        Err(_) => {
+    let release = match fetch_release(&client, &api_url) {
+        Some(r) => r,
+        None => {
+            // No network / rate-limited — just launch whatever is installed
             launch_if_installed();
             exit(0);
         }
@@ -81,75 +66,81 @@ fn main() {
 
     let latest_tag = release.tag_name.trim_start_matches('v').to_string();
     let current_ver = STUB_VERSION.trim_start_matches('v');
+    log(&format!("Stub local={}, remote={}", current_ver, latest_tag));
 
-    log(&format!("Local={}, Remote={}", current_ver, latest_tag));
-
-    // 2. Check self-update: if newer stub available, download and replace self
+    // 2. Self-update stub if a newer version is available
     if compare_versions(&latest_tag, current_ver) > 0 {
         log("Newer stub available — self-updating");
         if let Some(asset) = release.assets.iter().find(|a| a.name == STUB_ASSET_NAME) {
-            if let Some(tmp) = download_file(&client, &asset.browser_download_url, STUB_ASSET_NAME) {
+            if let Some(tmp) = download_file(&client, &asset.browser_download_url, "danganverse_stub_new.exe") {
                 if update_self(&tmp) {
                     log("Self-update OK — relaunching");
-                    let new_exe = std::env::current_exe().unwrap();
-                    let _ = Command::new(&new_exe).spawn();
+                    if let Ok(new_exe) = std::env::current_exe() {
+                        let _ = Command::new(&new_exe)
+                            .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+                            .spawn();
+                    }
                     exit(0);
                 }
             }
         }
     }
 
-    // 3. Check if launcher is installed
+    // 3. Launcher already installed — just launch it
     if let Some(path) = find_launcher() {
+        log(&format!("Launcher found: {:?}", path));
         close_running_launcher();
-        std::thread::sleep(std::time::Duration::from_millis(900));
-        log(&format!("Launching: {:?}", path));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = Command::new(&path).spawn();
         exit(0);
     }
 
-    // 4. Launcher not installed — find Tauri exe in release assets
-    log("Launcher not installed, looking for Tauri exe");
-
-    let launcher_asset = release.assets.iter().find(|a| {
+    // 4. Launcher NOT installed — find the NSIS setup exe in release assets and run it silently
+    log("Launcher not installed — looking for NSIS installer in release assets");
+    let installer_asset = release.assets.iter().find(|a| {
         let n = a.name.to_lowercase();
-        n.contains("danganverse-launcher") && n.ends_with(".exe") && n != STUB_ASSET_NAME.to_lowercase()
+        (n.ends_with("_x64-setup.exe") || n.ends_with("-setup.exe")) && !n.contains("debug")
     });
 
-    if let Some(asset) = launcher_asset {
-        log(&format!("Downloading launcher: {}", asset.name));
-        if let Some(tmp) = download_file(&client, &asset.browser_download_url, &asset.name) {
-            let target = get_launcher_install_dir().join(&asset.name);
-            if std::fs::copy(&tmp, &target).is_ok() {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                log(&format!("Launching: {:?}", target));
-                let _ = Command::new(&target).spawn();
-            }
+    if let Some(asset) = installer_asset {
+        log(&format!("Downloading NSIS installer: {}", asset.name));
+        if let Some(tmp) = download_file(&client, &asset.browser_download_url, "DanganVerse-Setup.exe") {
+            log("Running NSIS installer silently...");
+            let status = Command::new(&tmp)
+                .arg("/S")
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
             let _ = std::fs::remove_file(&tmp);
+
+            log(&format!("NSIS installer exited: {:?}", status));
+
+            // Give the installer a moment to finish writing files
+            std::thread::sleep(std::time::Duration::from_secs(3));
+
+            if let Some(path) = find_launcher() {
+                log(&format!("Launching after install: {:?}", path));
+                let _ = Command::new(&path).spawn();
+            } else {
+                log("Launcher not found after NSIS install");
+                show_error("Установка завершена, но лаунчер не найден. Попробуйте перезапустить.");
+            }
+        } else {
+            log("Failed to download NSIS installer");
+            show_error("Не удалось скачать установщик. Проверьте интернет-соединение.");
         }
     } else {
-        // No direct exe found — fall back to downloading NSIS installer if exists
-        let nsis = release.assets.iter().find(|a| {
-            let n = a.name.to_lowercase();
-            n.contains("setup") && n.ends_with(".exe")
-        });
-        if let Some(asset) = nsis {
-            log(&format!("Running NSIS installer: {}", asset.name));
-            if let Some(tmp) = download_file(&client, &asset.browser_download_url, &asset.name) {
-                let _ = Command::new(&tmp)
-                    .args(["/S"])
-                    .creation_flags(0x08000000)
-                    .spawn();
-                std::thread::sleep(std::time::Duration::from_millis(4000));
-                if let Some(path) = find_launcher() {
-                    close_running_launcher();
-                    std::thread::sleep(std::time::Duration::from_millis(900));
-                    let _ = Command::new(&path).spawn();
-                }
-                let _ = std::fs::remove_file(&tmp);
-            }
-        }
+        log("No NSIS installer found in release assets");
+        show_error("Установщик не найден в последнем релизе на GitHub.");
     }
+}
+
+fn fetch_release(client: &reqwest::blocking::Client, url: &str) -> Option<GitHubRelease> {
+    let resp = client.get(url).send().ok()?;
+    let status = resp.status().as_u16();
+    if status == 403 || status == 429 || !resp.status().is_success() {
+        return None;
+    }
+    resp.json().ok()
 }
 
 fn compare_versions(latest: &str, current: &str) -> i32 {
@@ -169,24 +160,15 @@ fn compare_versions(latest: &str, current: &str) -> i32 {
     0
 }
 
-fn download_file(client: &reqwest::blocking::Client, url: &str, name: &str) -> Option<PathBuf> {
-    let resp = match client.get(url).send() {
-        Ok(r) => r,
-        Err(_) => return None,
-    };
+fn download_file(client: &reqwest::blocking::Client, url: &str, tmp_name: &str) -> Option<PathBuf> {
+    let resp = client.get(url).send().ok()?;
     if !resp.status().is_success() {
         return None;
     }
-    let bytes = match resp.bytes() {
-        Ok(b) => b,
-        Err(_) => return None,
-    };
-    let tmp = std::env::temp_dir().join(name);
-    if std::fs::write(&tmp, &bytes).is_ok() {
-        Some(tmp)
-    } else {
-        None
-    }
+    let bytes = resp.bytes().ok()?;
+    let tmp = std::env::temp_dir().join(tmp_name);
+    std::fs::write(&tmp, &bytes).ok()?;
+    Some(tmp)
 }
 
 fn update_self(tmp: &PathBuf) -> bool {
@@ -195,35 +177,53 @@ fn update_self(tmp: &PathBuf) -> bool {
         Err(_) => return false,
     };
     let backup = std::env::temp_dir().join("danganverse_stub_old.exe");
-
-    // Remove old backup first
     let _ = std::fs::remove_file(&backup);
-
-    // Rename current exe to backup
     std::fs::rename(&self_exe, &backup).ok();
-
-    // Copy new exe over current
     if std::fs::copy(tmp, &self_exe).is_err() {
-        // Restore backup
         let _ = std::fs::rename(&backup, &self_exe);
         return false;
     }
-
-    // Clean up backup
     let _ = std::fs::remove_file(&backup);
     true
 }
 
-fn get_launcher_install_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(LAUNCHER_DIR)
+fn find_launcher() -> Option<PathBuf> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    // 1. Check registry (set by Tauri NSIS currentUser installer)
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(key) = hkcu.open_subkey(REG_KEY) {
+        if let Ok(raw) = key.get_value::<String, _>("InstallLocation") {
+            let dir = raw.trim_matches('"').trim_end_matches('\\');
+            let exe = PathBuf::from(dir).join(LAUNCHER_EXE);
+            log(&format!("Registry InstallLocation check: {:?}", exe));
+            if exe.exists() {
+                return Some(exe);
+            }
+        }
+    }
+
+    // 2. Fallback: standard Tauri NSIS currentUser install path
+    //    %LOCALAPPDATA%\Programs\<productName>\<binary>.exe
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let path = PathBuf::from(&local)
+            .join("Programs")
+            .join(LAUNCHER_PRODUCT_NAME)
+            .join(LAUNCHER_EXE);
+        log(&format!("Fallback path check: {:?}", path));
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
 }
 
 fn launch_if_installed() {
     if let Some(path) = find_launcher() {
         close_running_launcher();
-        std::thread::sleep(std::time::Duration::from_millis(900));
+        std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = Command::new(&path).spawn();
     }
 }
@@ -231,44 +231,19 @@ fn launch_if_installed() {
 fn close_running_launcher() {
     let _ = Command::new("taskkill")
         .args(["/IM", LAUNCHER_EXE, "/F", "/T"])
-        .creation_flags(0x08000000)
+        .creation_flags(CREATE_NO_WINDOW)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null())
         .status();
 }
 
-fn find_launcher() -> Option<PathBuf> {
-    use winreg::enums::*;
-    use winreg::RegKey;
-
-    // Try new registry key first, then old fallback
-    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    for reg_key in [REG_KEY_NEW, REG_KEY_OLD] {
-        if let Ok(key) = hkcu.open_subkey(reg_key) {
-            if let Ok(raw) = key.get_value::<String, _>("InstallLocation") {
-                let dir = raw.trim_matches('"');
-                let exe = PathBuf::from(dir).join(LAUNCHER_EXE);
-                if exe.exists() {
-                    return Some(exe);
-                }
-            }
-        }
-    }
-
-    // Try new and old directory paths
-    let old_launcher_exe = "darkspark-launcher.exe";
-    let candidates = [
-        dirs::data_local_dir().map(|d| d.join(LAUNCHER_DIR).join(LAUNCHER_EXE)),
-        dirs::data_local_dir().map(|d| d.join("Programs").join(LAUNCHER_DIR).join(LAUNCHER_EXE)),
-        // Old paths as fallback
-        dirs::data_local_dir().map(|d| d.join("DarkSpark Launcher").join(old_launcher_exe)),
-        dirs::data_local_dir().map(|d| d.join("Programs").join("DarkSpark Launcher").join(old_launcher_exe)),
-    ];
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+fn show_error(msg: &str) {
+    let _ = Command::new("cmd")
+        .args(["/c", &format!(
+            "mshta \"javascript:var sh=new ActiveXObject('WScript.Shell');sh.Popup('{}',0,'DanganVerse Launcher',16);close()\"",
+            msg
+        )])
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn();
 }

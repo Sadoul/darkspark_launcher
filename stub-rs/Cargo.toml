@@ -1,11 +1,11 @@
 [package]
 name = "danganverse-stub"
-version = "2.70.10"
+version = "2.70.13"
 edition = "2021"
-description = "DanganVerse Launcher Stub
+description = "DanganVerse Launcher Stub"
 
 [[bin]]
-name = "DarkSpark-Launcher"
+name = "DanganVerse-Launcher"
 path = "src/main.rs"
 
 [dependencies]
