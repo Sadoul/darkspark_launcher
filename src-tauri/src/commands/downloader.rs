@@ -135,21 +135,46 @@ pub async fn download_modpack(
     version: String,
     minecraft_version: String,
 ) -> Result<String, String> {
+    CANCEL_FLAG.store(false, Ordering::SeqCst);
+
     let client = reqwest::Client::builder()
         .user_agent("DarkSparkLauncher/1.0")
+        .timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|e| e.to_string())?;
 
-    set_download_progress(0, 0, "Начало загрузки сборки...");
+    set_download_progress(0, 0, "Подключение к серверу...");
 
-    let response = client
+    let mut response = client
         .get(&download_url)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Ошибка соединения: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}: не удалось скачать сборку", response.status()));
+    }
 
     let total = response.content_length().unwrap_or(0);
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    let mut downloaded: u64 = 0;
+    let mut bytes: Vec<u8> = Vec::with_capacity(total as usize);
+
+    set_download_progress(0, total, "Загрузка сборки...");
+
+    loop {
+        if CANCEL_FLAG.load(Ordering::SeqCst) {
+            set_download_progress(0, 0, "Загрузка отменена");
+            return Err("Загрузка отменена пользователем".to_string());
+        }
+        match response.chunk().await.map_err(|e| format!("Ошибка загрузки: {e}"))? {
+            None => break,
+            Some(chunk) => {
+                downloaded += chunk.len() as u64;
+                bytes.extend_from_slice(&chunk);
+                set_download_progress(downloaded, total, "Загрузка сборки...");
+            }
+        }
+    }
 
     set_download_progress(total, total, "Распаковка сборки...");
 
