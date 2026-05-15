@@ -9,8 +9,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-#[cfg(windows)]
-const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x01000000;
 use tauri::Emitter;
 
 use super::logger::log as launcher_log;
@@ -314,45 +312,49 @@ pub async fn update_launcher(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 fn apply_nsis_update(app: tauri::AppHandle, installer: &PathBuf) -> Result<(), String> {
-    update_log(&format!("[updater] Starting NSIS installer directly: {}", installer.display()));
-
-    let mut installer_command = Command::new(installer);
-    installer_command
-        .arg("/S")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    update_log(&format!("[updater] Preparing NSIS update script: {}", installer.display()));
 
     #[cfg(windows)]
-    installer_command.creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB);
+    {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Не удалось получить путь лаунчера: {e}"))?;
 
-    let installer_child = installer_command
-        .spawn()
-        .map_err(|e| format!("Не удалось запустить установщик обновления: {e}"))?;
+        let installer_str = installer.to_string_lossy().replace('\'', "''");
+        let exe_str       = exe.to_string_lossy().replace('\'', "''");
+        let script_path   = std::env::temp_dir().join("dv_update.ps1");
+        let script_str    = script_path.to_string_lossy().replace('\'', "''");
 
-    let installer_pid = installer_child.id();
-    update_log(&format!("[updater] NSIS installer started PID={}, scheduling relaunch after it finishes", installer_pid));
-
-    // Wait for NSIS to finish, then relaunch — same pattern as game watcher.
-    #[cfg(windows)]
-    if let Ok(exe) = std::env::current_exe() {
-        let script = format!(
-            "Wait-Process -Id {} -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Start-Process -FilePath '{}'",
-            installer_pid,
-            exe.to_string_lossy().replace('\'', "''")
+        // Script runs NSIS silently (-Wait ensures we block until install is done),
+        // then waits 2 more seconds, then relaunches the launcher.
+        let ps1 = format!(
+            "Start-Process -FilePath '{}' -ArgumentList '/S' -Wait\r\nStart-Sleep -Seconds 2\r\nStart-Process -FilePath '{}'\r\nRemove-Item '{}' -ErrorAction SilentlyContinue\r\n",
+            installer_str, exe_str, script_str
         );
-        let _ = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
-            .creation_flags(CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB)
+        std::fs::write(&script_path, ps1.as_bytes())
+            .map_err(|e| format!("Не удалось записать скрипт обновления: {e}"))?;
+        update_log(&format!("[updater] Script written to {}", script_path.display()));
+
+        // Launch the script via Start-Process (ShellExecuteW) so it is NOT inside
+        // the current process's Job Object and survives after this process exits.
+        let outer = format!(
+            "Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-NonInteractive','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File','{}') -WindowStyle Hidden",
+            script_str
+        );
+        let result = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &outer])
+            .creation_flags(CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
-        update_log(&format!("[updater] Relaunch watcher started for PID={}: {}", installer_pid, exe.display()));
+        match result {
+            Ok(_)  => update_log("[updater] Update watcher launched via ShellExecuteW"),
+            Err(e) => update_log(&format!("[updater] Failed to launch watcher: {e}")),
+        }
     }
 
     tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         app.exit(0);
     });
 
