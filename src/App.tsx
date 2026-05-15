@@ -121,7 +121,7 @@ export default function App() {
       } catch (e) {
         // error ignored
       }
-    }, 700);
+    }, 1500);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -170,12 +170,9 @@ export default function App() {
 
       const justUpdated = await invoke<boolean>("check_just_updated").catch(() => false);
       if (!justUpdated) {
-        try {
-          const updateInfo = await invoke<UpdateInfo>("check_launcher_update");
-          if (updateInfo.update_available) setPendingUpdate(updateInfo);
-        } catch (e) {
-          console.error("Update check failed:", e);
-        }
+        invoke<UpdateInfo>("check_launcher_update")
+          .then(ui => { if (ui.update_available) setPendingUpdate(ui); })
+          .catch(e => console.error("Update check failed:", e));
       }
     } catch (e) {
       console.error("Init failed:", e);

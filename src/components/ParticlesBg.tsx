@@ -20,10 +20,10 @@ export default function ParticlesBg() {
       className="particles-bg"
       options={{
         fullScreen: false,
-        fpsLimit: 60,
+        fpsLimit: 30,
         particles: {
           number: {
-            value: 50,
+            value: 20,
             density: {
               enable: true,
             },
@@ -84,7 +84,7 @@ export default function ParticlesBg() {
             },
           },
         },
-        detectRetina: true,
+        detectRetina: false,
       }}
     />
   );

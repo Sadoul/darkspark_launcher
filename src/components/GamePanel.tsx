@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Page } from "./Sidebar";
@@ -74,8 +74,6 @@ export default function GamePanel({
   const [downloadProgress, setDownloadProgress] = useState<{ downloaded: number; total: number; message: string } | null>(null);
   const [error, setError] = useState("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const progressInterval = useRef<number | null>(null);
-
   const customPackName = page.startsWith("custom:") ? page.slice("custom:".length) : null;
   const customPack = customPackName ? customModpacks.find(pack => pack.name === customPackName) : null;
   const config = customPack ? {
@@ -156,7 +154,6 @@ export default function GamePanel({
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      if (progressInterval.current) clearInterval(progressInterval.current);
     };
   }, [page]);
 
@@ -214,21 +211,6 @@ export default function GamePanel({
     setError("");
     setProgress(null);
 
-    progressInterval.current = window.setInterval(async () => {
-      try {
-        const p = await invoke<LaunchProgress | null>("get_launch_progress");
-        if (p) {
-          setProgress(p);
-          if (p.stage === "done") {
-            if (progressInterval.current) clearInterval(progressInterval.current);
-            setTimeout(() => { setLaunching(false); setProgress(null); }, 2000);
-          }
-        }
-      } catch (e) {
-        // error ignored
-      }
-    }, 500);
-
     try {
       const gameDir = customPack?.game_dir || await invoke<string>("get_builtin_modpack_dir", { modpackName: config.modpackName });
 
@@ -252,7 +234,6 @@ export default function GamePanel({
     } catch (err) {
       setError(String(err));
       setLaunching(false);
-      if (progressInterval.current) clearInterval(progressInterval.current);
     }
   };
 
@@ -268,7 +249,6 @@ export default function GamePanel({
     setStatus("ready");
     setProgress(null);
     setDownloadProgress(null);
-    if (progressInterval.current) clearInterval(progressInterval.current);
     setCancelling(false);
   };
 
