@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Page } from "./Sidebar";
@@ -74,6 +74,10 @@ export default function GamePanel({
   const [downloadProgress, setDownloadProgress] = useState<{ downloaded: number; total: number; message: string } | null>(null);
   const [error, setError] = useState("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const isActiveRef = useRef(false);
+  useEffect(() => {
+    isActiveRef.current = launching || status === "downloading";
+  }, [launching, status]);
   const customPackName = page.startsWith("custom:") ? page.slice("custom:".length) : null;
   const customPack = customPackName ? customModpacks.find(pack => pack.name === customPackName) : null;
   const config = customPack ? {
@@ -98,6 +102,7 @@ export default function GamePanel({
     const wasDownloading = { current: status === "downloading" };
 
     const poll = async () => {
+      if (document.hidden && !isActiveRef.current) return;
 
       try {
         const lp = await invoke<LaunchProgress | null>("get_launch_progress");

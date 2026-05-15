@@ -114,6 +114,7 @@ export default function App() {
 
   useEffect(() => {
     const timer = window.setInterval(async () => {
+      if (document.hidden) return;
       try {
         const progress = await invoke<LaunchProgress | null>("get_launch_progress");
         if (progress && progress.stage !== "done") setGlobalLaunchProgress(progress);
@@ -128,47 +129,45 @@ export default function App() {
   const initializeApp = async () => {
     setLoading(true);
     try {
-      const savedMemory = localStorage.getItem("darkspark_memory");
-      const savedJavaPath = localStorage.getItem("darkspark_java_path");
+      const savedMemory    = localStorage.getItem("darkspark_memory");
+      const savedJavaPath  = localStorage.getItem("darkspark_java_path");
       const savedJavaVersion = localStorage.getItem("darkspark_java_version");
-      const savedJvmArgs = localStorage.getItem("darkspark_jvm_args");
-      const savedGpuMode = localStorage.getItem("darkspark_gpu_mode");
-      const savedTheme = localStorage.getItem("darkspark_theme") as Theme | null;
-      const savedAllowMultipleInstances = localStorage.getItem("darkspark_allow_multiple_instances");
-      const savedCloseLauncher = localStorage.getItem("darkspark_close_launcher_on_game_start");
-      const savedReopenLauncher = localStorage.getItem("darkspark_reopen_launcher_after_game_close");
+      const savedJvmArgs   = localStorage.getItem("darkspark_jvm_args");
+      const savedGpuMode   = localStorage.getItem("darkspark_gpu_mode");
+      const savedTheme     = localStorage.getItem("darkspark_theme") as Theme | null;
+      const savedAllowMulti = localStorage.getItem("darkspark_allow_multiple_instances");
+      const savedClose     = localStorage.getItem("darkspark_close_launcher_on_game_start");
+      const savedReopen    = localStorage.getItem("darkspark_reopen_launcher_after_game_close");
+      const loggingEnabled = localStorage.getItem("darkspark_logging") !== "false";
 
       if (savedMemory) { const m = parseInt(savedMemory); if (!isNaN(m)) setMaxMemory(Math.max(1024, Math.min(16384, m))); }
-      if (savedJavaPath) setJavaPath(savedJavaPath);
+      if (savedJavaPath)    setJavaPath(savedJavaPath);
       if (savedJavaVersion) setJavaVersion(savedJavaVersion);
-      if (savedJvmArgs) setJvmArgs(savedJvmArgs);
-      if (savedGpuMode) setGpuMode(savedGpuMode);
+      if (savedJvmArgs)     setJvmArgs(savedJvmArgs);
+      if (savedGpuMode)     setGpuMode(savedGpuMode);
       if (savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
-      if (savedAllowMultipleInstances) setAllowMultipleInstances(savedAllowMultipleInstances === "true");
-      if (savedCloseLauncher) setCloseLauncherOnGameStart(savedCloseLauncher === "true");
-      if (savedReopenLauncher) setReopenLauncherAfterGameClose(savedReopenLauncher === "true");
+      if (savedAllowMulti)  setAllowMultipleInstances(savedAllowMulti === "true");
+      if (savedClose)       setCloseLauncherOnGameStart(savedClose === "true");
+      if (savedReopen)      setReopenLauncherAfterGameClose(savedReopen === "true");
 
-      await loadCustomModpacks();
-
-      const loggingEnabled = localStorage.getItem("darkspark_logging") !== "false";
-      try { await invoke("set_logging_enabled", { enabled: loggingEnabled }); } catch (e) {
-        // error ignored
+      invoke("set_logging_enabled", { enabled: loggingEnabled }).catch(() => {});
+      if (!savedJavaPath) {
+        invoke<JavaInfo>("find_java")
+          .then(j => { if (j.found) handleJavaChange(j.path, j.version); })
+          .catch(() => {});
       }
 
-      try { const dataUrl = await invoke<string | null>("get_avatar"); if (dataUrl) setAvatarUrl(dataUrl); } catch (e) {
-        // error ignored
-      }
+      const [modpacks, dataUrl, savedAccount, justUpdated] = await Promise.all([
+        invoke<CustomModpack[]>("get_custom_modpacks").catch(() => [] as CustomModpack[]),
+        invoke<string | null>("get_avatar").catch(() => null),
+        invoke<Account | null>("get_saved_account").catch(() => null),
+        invoke<boolean>("check_just_updated").catch(() => false),
+      ]);
 
-      const savedAccount = await invoke<Account | null>("get_saved_account");
+      setCustomModpacks(modpacks);
+      if (dataUrl)     setAvatarUrl(dataUrl);
       if (savedAccount) setAccount(savedAccount);
 
-      if (!savedJavaPath) {
-        try { const j = await invoke<JavaInfo>("find_java"); if (j.found) handleJavaChange(j.path, j.version); } catch (e) {
-          // error ignored
-        }
-      }
-
-      const justUpdated = await invoke<boolean>("check_just_updated").catch(() => false);
       if (!justUpdated) {
         invoke<UpdateInfo>("check_launcher_update")
           .then(ui => { if (ui.update_available) setPendingUpdate(ui); })
