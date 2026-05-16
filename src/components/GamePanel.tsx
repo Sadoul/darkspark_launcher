@@ -397,7 +397,6 @@ export default function GamePanel({
               <span className="play-button-icon">▶</span>
               <span>
                 {checkingUpdate ? "Проверка..."
-                  : status === "update" ? "Обновить и играть"
                   : status === "downloading" ? "Загрузка..."
                   : (!allowMultipleInstances && gameRunning) ? "Minecraft уже открыт"
                   : "Играть"}

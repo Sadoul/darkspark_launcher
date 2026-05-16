@@ -256,14 +256,16 @@ fn build_repo_for_modpack(name: &str) -> Option<&'static str> {
     }
 }
 
-async fn fetch_build_manifest(client: &reqwest::Client, repo: &str) -> Result<BuildManifest, String> {
+async fn fetch_build_manifest(client: &reqwest::Client, repo: &str) -> Result<(BuildManifest, String), String> {
     let url = format!("https://raw.githubusercontent.com/{}/main/manifest.json?t={}", repo, chrono::Utc::now().timestamp_millis());
     log(&format!("[build] Fetch manifest: {}", url));
     let response = client.get(&url).send().await.map_err(|e| format!("[build] Manifest request failed: {}", e))?;
     if !response.status().is_success() {
         return Err(format!("[build] Manifest HTTP {} for {}", response.status(), repo));
     }
-    response.json::<BuildManifest>().await.map_err(|e| format!("[build] Manifest parse failed: {}", e))
+    let raw = response.text().await.map_err(|e| format!("[build] Manifest read failed: {}", e))?;
+    let manifest = serde_json::from_str::<BuildManifest>(&raw).map_err(|e| format!("[build] Manifest parse failed: {}", e))?;
+    Ok((manifest, raw))
 }
 
 const SYNC_TRACKED_DIRS: &[&str] = &["mods", "config", "resourcepacks", "shaderpacks", "schematics"];
@@ -315,7 +317,7 @@ fn cleanup_stale_in_dir(dir: &PathBuf, mc_dir: &PathBuf, enabled_paths: &HashSet
 
 async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: &PathBuf) -> Result<Option<BuildManifest>, String> {
     let Some(repo) = build_repo_for_modpack(modpack_name) else { return Ok(None); };
-    let manifest = fetch_build_manifest(client, repo).await?;
+    let (manifest, raw_manifest_text) = fetch_build_manifest(client, repo).await?;
 
     let total = manifest.mods.len() as f64;
     set_progress("build", 0.0, total, "Синхронизация сборки...");
@@ -353,9 +355,8 @@ async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: 
     }
 
     // Cache manifest hash and discord_url for update-check and UI
-    let manifest_json = serde_json::to_string(&manifest).unwrap_or_default();
     let mut h = Sha1::new();
-    h.update(manifest_json.as_bytes());
+    h.update(raw_manifest_text.as_bytes());
     let manifest_hash = format!("{:x}", h.finalize());
     write_modpack_meta(modpack_name, &manifest_hash, manifest.discord_url.as_deref());
     log(&format!("[build] Meta cached, hash={}, discord={:?}", manifest_hash, manifest.discord_url));
@@ -1375,12 +1376,10 @@ pub async fn launch_game(
     // Write servers.dat so the server appears in the in-game list
     if let Some(ref ip) = server_ip {
         let servers_dat = mc_dir.join("servers.dat");
-        if !servers_dat.exists() {
-            let nbt = build_servers_dat(ip, "DanganVerse");
-            match fs::write(&servers_dat, &nbt) {
-                Ok(()) => log(&format!("[launch] Created servers.dat with server: {ip}")),
-                Err(e) => log(&format!("[launch] Failed to write servers.dat: {e}")),
-            }
+        let nbt = build_servers_dat(ip, "DanganVerse");
+        match fs::write(&servers_dat, &nbt) {
+            Ok(()) => log(&format!("[launch] Written servers.dat with server: {ip}")),
+            Err(e) => log(&format!("[launch] Failed to write servers.dat: {e}")),
         }
     }
 
