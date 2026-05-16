@@ -175,6 +175,32 @@ fn set_progress(stage: &str, progress: f64, total: f64, message: &str) {
     }
 }
 
+fn write_nbt_string(buf: &mut Vec<u8>, name: &str, value: &str) {
+    buf.push(0x08);
+    let nb = name.as_bytes();
+    buf.extend_from_slice(&(nb.len() as u16).to_be_bytes());
+    buf.extend_from_slice(nb);
+    let vb = value.as_bytes();
+    buf.extend_from_slice(&(vb.len() as u16).to_be_bytes());
+    buf.extend_from_slice(vb);
+}
+
+fn build_servers_dat(server_ip: &str, server_name: &str) -> Vec<u8> {
+    let mut buf = Vec::new();
+    buf.push(0x0a); buf.extend_from_slice(&[0x00, 0x00]); // Root TAG_Compound, empty name
+    buf.push(0x09); // TAG_List
+    let ln = b"servers";
+    buf.extend_from_slice(&(ln.len() as u16).to_be_bytes());
+    buf.extend_from_slice(ln);
+    buf.push(0x0a); // element type TAG_Compound
+    buf.extend_from_slice(&1u32.to_be_bytes()); // 1 server
+    write_nbt_string(&mut buf, "ip", server_ip);
+    write_nbt_string(&mut buf, "name", server_name);
+    buf.push(0x00); // TAG_End server compound
+    buf.push(0x00); // TAG_End root
+    buf
+}
+
 fn file_sha1(path: &PathBuf) -> Result<String, String> {
     let bytes = fs::read(path).map_err(|e| format!("sha1 read failed for {}: {}", path.display(), e))?;
     let mut hasher = Sha1::new();
@@ -1255,6 +1281,18 @@ pub async fn launch_game(
 
     log(&format!("[launch] Total args: {}", args.len()));
     log(&format!("[launch] First 10 args: {:?}", &args[..args.len().min(10)]));
+
+    // Write servers.dat so the server appears in the in-game list
+    if let Some(ref ip) = server_ip {
+        let servers_dat = mc_dir.join("servers.dat");
+        if !servers_dat.exists() {
+            let nbt = build_servers_dat(ip, "DanganVerse");
+            match fs::write(&servers_dat, &nbt) {
+                Ok(()) => log(&format!("[launch] Created servers.dat with server: {ip}")),
+                Err(e) => log(&format!("[launch] Failed to write servers.dat: {e}")),
+            }
+        }
+    }
 
     check_launch_cancelled()?;
     set_progress("launch", 1.0, 1.0, "Запуск игры...");

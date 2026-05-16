@@ -159,6 +159,8 @@ pub fn run() {
             builds::get_build_manifest,
             builds::commit_build_manifest,
             builds::upload_build_mod,
+            builds::upload_modpack_build,
+            builds::get_upload_progress,
             builds::get_build_download_dir,
             builds::set_build_download_dir,
             builds::download_build_mod_file,

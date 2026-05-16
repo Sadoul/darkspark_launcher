@@ -1271,6 +1271,40 @@ button { font-family: inherit; }
 .admin-mod-search::before { display: none; }
 
 
+.admin-upload-progress {
+  margin: 10px 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.admin-upload-bar-wrap {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.admin-upload-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.admin-upload-status {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.admin-upload-errors {
+  margin-top: 5px;
+  color: #e57373;
+  font-size: 11px;
+  word-break: break-all;
+}
+
 .admin-build-floating-actions {
   position: static;
   margin-top: 18px;

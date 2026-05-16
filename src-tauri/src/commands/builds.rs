@@ -4,6 +4,7 @@ use sha1::{Digest, Sha1};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::sync::Mutex;
 
 
 const BUILD_BRANCH: &str = "main";
@@ -45,6 +46,53 @@ struct GitHubContentResponse {
 }
 
 fn default_enabled() -> bool { true }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UploadProgress {
+    pub done: usize,
+    pub total: usize,
+    pub current: String,
+    pub errors: Vec<String>,
+    pub finished: bool,
+}
+
+static UPLOAD_PROGRESS: Mutex<Option<UploadProgress>> = Mutex::new(None);
+
+const UPLOAD_ALLOWED_DIRS: &[&str] = &["mods", "config", "resourcepacks", "shaderpacks", "schematics"];
+const UPLOAD_ALLOWED_ROOT: &[&str] = &["options.txt"];
+
+fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        let mut sorted: Vec<_> = entries.flatten().collect();
+        sorted.sort_by_key(|e| e.file_name());
+        for entry in sorted {
+            let p = entry.path();
+            if p.is_dir() { walk_dir(&p, files); }
+            else if p.is_file() { files.push(p); }
+        }
+    }
+}
+
+fn collect_upload_files(base: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for rf in UPLOAD_ALLOWED_ROOT {
+        let p = base.join(rf);
+        if p.is_file() { files.push(p); }
+    }
+    for dir_name in UPLOAD_ALLOWED_DIRS {
+        let dir = base.join(dir_name);
+        if dir.is_dir() { walk_dir(&dir, &mut files); }
+    }
+    files
+}
+
+fn git_blob_sha1(content: &[u8]) -> String {
+    let header = format!("blob {}\0", content.len());
+    let mut h = Sha1::new();
+    h.update(header.as_bytes());
+    h.update(content);
+    format!("{:x}", h.finalize())
+}
 
 fn launcher_data_dir() -> PathBuf {
     dirs::data_dir()
@@ -179,6 +227,109 @@ fn default_manifest(build: &str) -> BuildManifest {
         server_ip: None,
         discord_url: None,
     }
+}
+
+#[tauri::command]
+pub fn get_upload_progress() -> Option<UploadProgress> {
+    UPLOAD_PROGRESS.lock().ok().and_then(|p| p.clone())
+}
+
+#[tauri::command]
+pub async fn upload_modpack_build(
+    build: String,
+    github_token: String,
+    folder_path: String,
+) -> Result<Vec<BuildFileEntry>, String> {
+    let repo = repo_for_build(&build)?;
+    let token = github_token.trim().to_string();
+    let base = PathBuf::from(&folder_path);
+
+    if !base.is_dir() {
+        return Err(format!("Папка не найдена: {folder_path}"));
+    }
+
+    let files = collect_upload_files(&base);
+    let total = files.len();
+    if total == 0 {
+        return Err("В папке нет файлов для загрузки (mods/, config/, resourcepacks/, shaderpacks/, schematics/, options.txt)".to_string());
+    }
+
+    if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
+        *p = Some(UploadProgress { done: 0, total, current: "Начинаю загрузку...".to_string(), errors: vec![], finished: false });
+    }
+
+    let client = github_client()?;
+    let mut entries: Vec<BuildFileEntry> = Vec::new();
+
+    for (i, file_path) in files.iter().enumerate() {
+        let rel = file_path.strip_prefix(&base)
+            .map_err(|e| format!("Ошибка пути: {e}"))?;
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+        if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
+            if let Some(ref mut prog) = *p {
+                prog.done = i;
+                prog.current = rel_str.clone();
+            }
+        }
+
+        let bytes = match fs::read(file_path) {
+            Ok(b) => b,
+            Err(e) => {
+                if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
+                    if let Some(ref mut prog) = *p { prog.errors.push(format!("{rel_str}: {e}")); }
+                }
+                continue;
+            }
+        };
+
+        let size = bytes.len() as u64;
+        let mut h = Sha1::new();
+        h.update(&bytes);
+        let sha1 = format!("{:x}", h.finalize());
+
+        let api = file_api(repo, &rel_str);
+        let existing = get_github_file(&client, &token, &api).await.ok().flatten();
+
+        // Skip upload if file content identical (compare git blob SHA)
+        let git_sha = git_blob_sha1(&bytes);
+        if let Some(ref ex) = existing {
+            if ex.sha == git_sha {
+                let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                entries.push(BuildFileEntry { name, path: rel_str.clone(), url: raw_url(repo, &rel_str), sha1, size, enabled: true });
+                continue;
+            }
+        }
+
+        match put_github_file(
+            &client,
+            &token,
+            &api,
+            &format!("build: upload {rel_str}"),
+            &bytes,
+            existing.map(|f| f.sha),
+        ).await {
+            Ok(()) => {
+                let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                entries.push(BuildFileEntry { name, path: rel_str.clone(), url: raw_url(repo, &rel_str), sha1, size, enabled: true });
+            }
+            Err(e) => {
+                if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
+                    if let Some(ref mut prog) = *p { prog.errors.push(format!("{rel_str}: {e}")); }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
+        if let Some(ref mut prog) = *p {
+            prog.done = total;
+            prog.current = format!("Готово! Загружено: {} из {total} файлов", entries.len());
+            prog.finished = true;
+        }
+    }
+
+    Ok(entries)
 }
 
 #[tauri::command]

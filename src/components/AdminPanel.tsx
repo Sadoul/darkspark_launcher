@@ -29,6 +29,14 @@ interface BuildManifest {
   discord_url?: string;
 }
 
+interface UploadProgress {
+  done: number;
+  total: number;
+  current: string;
+  errors: string[];
+  finished: boolean;
+}
+
 interface Props {
   username: string;
   isOwner: boolean;
@@ -57,10 +65,13 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const [activeBuild, setActiveBuild] = useState("danganverse");
   const [manifest, setManifest] = useState<BuildManifest | null>(null);
   const [uploadingMod, setUploadingMod] = useState(false);
+  const [uploadingBuild, setUploadingBuild] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [modSearch, setModSearch] = useState("");
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [downloadDir, setDownloadDir] = useState("");
   const lastDropKeyRef = useRef("");
+  const uploadPollRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
 
@@ -351,6 +362,45 @@ export default function AdminPanel({ username, isOwner }: Props) {
     }
   };
 
+  const uploadModpackFolder = async () => {
+    if (!githubToken.trim()) { notify("Введите GitHub token перед загрузкой"); return; }
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, multiple: false, title: "Выберите папку модпака (например: danganverse)" });
+      if (typeof selected !== "string") return;
+
+      setUploadingBuild(true);
+      setUploadProgress({ done: 0, total: 0, current: "Сканирование файлов...", errors: [], finished: false });
+
+      uploadPollRef.current = window.setInterval(async () => {
+        try {
+          const prog = await invoke<UploadProgress | null>("get_upload_progress");
+          if (prog) setUploadProgress(prog);
+        } catch {}
+      }, 800);
+
+      try {
+        const entries = await invoke<BuildFileEntry[]>("upload_modpack_build", {
+          build: activeBuild,
+          githubToken,
+          folderPath: selected,
+        });
+        setManifest(prev => prev ? { ...prev, mods: entries } : prev);
+        notify(`Загружено ${entries.length} файлов. Нажмите «Commit» чтобы сохранить manifest.`);
+      } catch (e) {
+        notify(`Ошибка загрузки сборки: ${String(e)}`);
+      } finally {
+        if (uploadPollRef.current !== null) {
+          window.clearInterval(uploadPollRef.current);
+          uploadPollRef.current = null;
+        }
+        setUploadingBuild(false);
+      }
+    } catch (e) {
+      notify(String(e));
+    }
+  };
+
   const commitManifest = async () => {
     if (!manifest) return;
     setSaving(true);
@@ -490,10 +540,29 @@ export default function AdminPanel({ username, isOwner }: Props) {
 
               <div className="admin-drop-zone" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
                 <div>{uploadingMod ? "Загрузка мода на GitHub..." : "Перетащите .jar моды сюда или на список ниже, чтобы добавить в сборку"}</div>
-                <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod}>
-                  Выбрать .jar
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                  <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod || uploadingBuild}>
+                    Выбрать .jar
+                  </button>
+                  <button className="settings-btn compact" type="button" onClick={uploadModpackFolder} disabled={uploadingMod || uploadingBuild} title="Загрузить mods/, config/, resourcepacks/, shaderpacks/, schematics/, options.txt на GitHub">
+                    {uploadingBuild ? "Загрузка сборки..." : "📁 Загрузить папку сборки"}
+                  </button>
+                </div>
               </div>
+
+              {uploadingBuild && uploadProgress && (
+                <div className="admin-upload-progress">
+                  <div className="admin-upload-bar-wrap">
+                    <div className="admin-upload-bar" style={{ width: uploadProgress.total > 0 ? `${Math.round(uploadProgress.done / uploadProgress.total * 100)}%` : "0%" }} />
+                  </div>
+                  <div className="admin-upload-status">
+                    {uploadProgress.total > 0 ? `${uploadProgress.done} / ${uploadProgress.total}` : "…"} — <span style={{ opacity: 0.75 }}>{uploadProgress.current}</span>
+                  </div>
+                  {uploadProgress.errors.length > 0 && (
+                    <div className="admin-upload-errors">Ошибки: {uploadProgress.errors.slice(-3).join(" | ")}</div>
+                  )}
+                </div>
+              )}
 
 
               <div className="admin-mod-search">
