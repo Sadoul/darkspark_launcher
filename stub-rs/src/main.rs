@@ -21,6 +21,7 @@ struct GitHubAsset {
 }
 
 const GITHUB_REPO: &str = "Sadoul/darkspark_launcher";
+#[allow(dead_code)]
 const STUB_ASSET_NAME: &str = "DanganVerse-Launcher.exe";
 const LAUNCHER_EXE: &str = "danganverse-launcher.exe";
 const LAUNCHER_PRODUCT_NAME: &str = "DanganVerse Launcher";
@@ -28,6 +29,7 @@ const REG_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Dang
 const STUB_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[allow(dead_code)]
 const DETACHED_PROCESS: u32 = 0x00000008;
 
 fn log(msg: &str) {
@@ -162,6 +164,7 @@ fn find_launcher() -> Option<PathBuf> {
     None
 }
 
+#[allow(dead_code)]
 fn launch_if_installed() {
     if let Some(path) = find_launcher() {
         close_running_launcher();
