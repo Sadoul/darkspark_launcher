@@ -139,6 +139,8 @@ pub struct BuildManifest {
     pub mods: Vec<BuildFileEntry>,
     #[serde(default)]
     pub server_ip: Option<String>,
+    #[serde(default)]
+    pub discord_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
