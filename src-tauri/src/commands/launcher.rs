@@ -89,7 +89,6 @@ struct Library {
     name: String,
     downloads: Option<LibraryDownloads>,
     rules: Option<Vec<Rule>>,
-    #[allow(dead_code)]
     url: Option<String>,
 }
 
@@ -1021,6 +1020,26 @@ pub async fn launch_game(
                 download_file(&client, &artifact.url, &lib_path).await
                     .map_err(|e| format!("[libs] Failed to download {}: {}", lib.name, e))?;
                 classpath_entries.push(lib_path.to_string_lossy().to_string());
+            }
+        } else if let Some(ref base_url) = lib.url {
+            let parts: Vec<&str> = lib.name.splitn(3, ':').collect();
+            if parts.len() == 3 {
+                let group = parts[0].replace('.', "/");
+                let artifact = parts[1];
+                let version = parts[2];
+                let jar_name = format!("{}-{}.jar", artifact, version);
+                let artifact_path = format!("{}/{}/{}/{}", group, artifact, version, jar_name);
+                let url = format!("{}/{}", base_url.trim_end_matches('/'), artifact_path);
+                let lib_path = mc_dir.join("libraries").join(&artifact_path);
+                if !lib_path.exists() {
+                    log(&format!("[libs] Downloading Fabric lib: {} from {}", lib.name, url));
+                    downloaded += 1;
+                }
+                download_file(&client, &url, &lib_path).await
+                    .map_err(|e| format!("[libs] Failed to download Fabric lib {}: {}", lib.name, e))?;
+                classpath_entries.push(lib_path.to_string_lossy().to_string());
+            } else {
+                log(&format!("[libs] Skipping malformed Fabric lib name: {}", lib.name));
             }
         }
     }
