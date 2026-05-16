@@ -213,6 +213,7 @@ async fn has_admin_panel_access(username: &str) -> Result<bool, String> {
     }))
 }
 
+#[allow(dead_code)]
 fn build_account(credential: &OfflineCredential) -> Account {
     let owner = is_owner(&credential.username);
     let moderator = is_moderator(credential);

@@ -175,7 +175,7 @@ async fn get_neoforge_versions(mc_version: &str) -> Result<Vec<LoaderVersion>, S
 
 
     let mc_suffix = mc_version.trim_start_matches("1.");
-    let mut filtered: Vec<LoaderVersion> = resp
+    let filtered: Vec<LoaderVersion> = resp
         .versions
         .iter()
         .filter(|v| v.starts_with(mc_suffix))
