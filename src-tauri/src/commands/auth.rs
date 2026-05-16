@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 
 use super::logger::log as launcher_log;
 use std::fs;
@@ -8,6 +9,7 @@ use std::path::PathBuf;
 const ACCOUNTS_KEY: &[u8] = b"DanganVerseLauncherFriendsOnlyKey_v1";
 const ADMIN_USERNAME: &str = "DarkSpark00";
 const ADMIN_PASSWORD: &str = "Oiw$8z09o@H8";
+const SESSION_SIG_KEY: &str = "dV3r5e!Lu@nch_S3ss!0n#2024_x9k";  
 const ACCOUNTS_REPO_API: &str = "https://api.github.com/repos/Sadoul/darkspark_modpack/contents/offline_accounts.danganverseenc";
 const ACCOUNTS_BRANCH: &str = "main";
 
@@ -23,6 +25,20 @@ pub struct Account {
     pub is_owner: bool,
     #[serde(default)]
     pub role: String,
+    #[serde(default)]
+    pub session_sig: String,
+}
+
+fn compute_session_sig(username: &str, account_type: &str) -> String {
+    let mut h = Sha1::new();
+    h.update(SESSION_SIG_KEY.as_bytes());
+    h.update(b"|");
+    h.update(username.to_lowercase().as_bytes());
+    h.update(b"|");
+    h.update(account_type.as_bytes());
+    h.update(b"|");
+    h.update(SESSION_SIG_KEY.as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -200,14 +216,17 @@ async fn has_admin_panel_access(username: &str) -> Result<bool, String> {
 fn build_account(credential: &OfflineCredential) -> Account {
     let owner = is_owner(&credential.username);
     let moderator = is_moderator(credential);
+    let account_type = "danganverse".to_string();
+    let sig = compute_session_sig(&credential.username, &account_type);
     Account {
         username: credential.username.clone(),
         uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
         access_token: "0".to_string(),
-        account_type: "danganverse".to_string(),
+        account_type,
         is_admin: owner || moderator,
         is_owner: owner,
         role: if owner { "owner".to_string() } else { credential.role.clone() },
+        session_sig: sig,
     }
 }
 
@@ -261,14 +280,17 @@ pub async fn login_offline(username: String) -> Result<Account, String> {
         return Err("Этот ник занят DanganVerse аккаунтом. Используйте вход DanganVerse аккаунт.".to_string());
     }
 
+    let account_type = "offline".to_string();
+    let sig = compute_session_sig(&username, &account_type);
     let account = Account {
         username,
         uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
         access_token: "0".to_string(),
-        account_type: "offline".to_string(),
+        account_type,
         is_admin: false,
         is_owner: false,
         role: String::new(),
+        session_sig: sig,
     };
     let json = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;
     fs::write(get_account_file(), json).map_err(|e| e.to_string())?;
@@ -285,14 +307,17 @@ pub async fn login_darkspark(username: String, password: String) -> Result<Accou
         return Err("Неверный пароль".to_string());
     }
 
+    let account_type = "danganverse".to_string();
+    let sig = compute_session_sig(ADMIN_USERNAME, &account_type);
     let account = Account {
         username: ADMIN_USERNAME.to_string(),
         uuid: uuid::Uuid::new_v4().to_string().replace('-', ""),
         access_token: "0".to_string(),
-        account_type: "danganverse".to_string(),
+        account_type,
         is_admin: true,
         is_owner: true,
         role: "owner".to_string(),
+        session_sig: sig,
     };
     let json = serde_json::to_string_pretty(&account).map_err(|e| e.to_string())?;
     fs::write(get_account_file(), json).map_err(|e| e.to_string())?;
@@ -519,6 +544,17 @@ pub async fn get_saved_account() -> Result<Option<Account>, String> {
 
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let mut account: Account = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    // Verify session signature — prevents tampering of account.json
+    let expected_sig = compute_session_sig(&account.username, &account.account_type);
+    if account.session_sig != expected_sig {
+        launcher_log(&format!("[auth] Tampered account.json detected for '{}', stripping privileges", account.username));
+        account.is_admin = false;
+        account.is_owner = false;
+        account.role = String::new();
+        return Ok(Some(account));
+    }
+
     account.is_owner = is_owner(&account.username);
     if account.is_owner {
         account.is_admin = true;
