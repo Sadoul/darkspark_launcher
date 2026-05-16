@@ -86,6 +86,7 @@ export default function App() {
   const [closeLauncherOnGameStart, setCloseLauncherOnGameStart] = useState(true);
   const [reopenLauncherAfterGameClose, setReopenLauncherAfterGameClose] = useState(true);
   const [globalLaunchProgress, setGlobalLaunchProgress] = useState<LaunchProgress | null>(null);
+  const [discordUrl, setDiscordUrl] = useState(localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL_FALLBACK);
 
 
   useLayoutEffect(() => {
@@ -173,6 +174,10 @@ export default function App() {
           .then(ui => { if (ui.update_available) setPendingUpdate(ui); })
           .catch(e => console.error("Update check failed:", e));
       }
+
+      invoke<string | null>("get_modpack_discord_url", { modpackName: "danganverse" })
+        .then(url => { if (url) { localStorage.setItem(DISCORD_URL_STORAGE, url); setDiscordUrl(url); } })
+        .catch(() => {});
     } catch (e) {
       console.error("Init failed:", e);
     } finally {
@@ -322,7 +327,7 @@ export default function App() {
           }}
           onDeleteBuiltinModpack={deleteBuiltinModpack}
           onDeleteCustomModpack={deleteCustomModpack}
-          discordUrl={localStorage.getItem(DISCORD_URL_STORAGE) || DISCORD_URL_FALLBACK}
+          discordUrl={discordUrl}
         />
 
         <div className="content-area">

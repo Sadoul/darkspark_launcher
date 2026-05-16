@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
@@ -42,89 +43,65 @@ fn get_modpack_version_file(modpack_name: &str) -> PathBuf {
     get_modpacks_dir().join(format!("{}.version.json", modpack_name))
 }
 
+fn modpack_meta_path_local(modpack_name: &str) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".danganverse")
+        .join("modpacks")
+        .join(format!("{}_meta.json", modpack_name))
+}
+
+fn read_cached_manifest_hash(modpack_name: &str) -> Option<String> {
+    let text = fs::read_to_string(modpack_meta_path_local(modpack_name)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v["manifest_hash"].as_str().map(|s| s.to_string())
+}
+
 #[tauri::command]
 pub async fn check_modpack_update(
     modpack_name: String,
     github_repo: String,
 ) -> Result<Option<ModpackInfo>, String> {
+    if github_repo.is_empty() {
+        return Ok(None);
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("DarkSparkLauncher/1.0")
+        .timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| e.to_string())?;
 
-
-    let api_url = format!(
-        "https://api.github.com/repos/{}/releases/latest",
-        github_repo
+    let raw_url = format!(
+        "https://raw.githubusercontent.com/{}/main/manifest.json?t={}",
+        github_repo,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
     );
 
-    let response = client
-        .get(&api_url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
+    let response = client.get(&raw_url).send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
         return Ok(None);
     }
 
-    let release: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-    let tag = release["tag_name"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let content = response.text().await.map_err(|e| e.to_string())?;
+    let mut h = Sha1::new();
+    h.update(content.as_bytes());
+    let current_hash = format!("{:x}", h.finalize());
 
-
-    let version_file = get_modpack_version_file(&modpack_name);
-    if version_file.exists() {
-        let saved: ModpackInfo = serde_json::from_str(
-            &fs::read_to_string(&version_file).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-
-        if saved.version == tag {
+    if let Some(cached) = read_cached_manifest_hash(&modpack_name) {
+        if cached == current_hash {
             return Ok(None);
         }
     }
 
-
-    let download_url = release["assets"]
-        .as_array()
-        .and_then(|assets| {
-            assets.iter().find_map(|a| {
-                let name = a["name"].as_str().unwrap_or("");
-                if name.contains(&modpack_name) && name.ends_with(".zip") {
-                    a["browser_download_url"].as_str().map(|s| s.to_string())
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap_or_default();
-
-    if download_url.is_empty() {
-        return Ok(None);
-    }
-
-
-    let mc_version = release["body"]
-        .as_str()
-        .and_then(|body| {
-            body.lines().find_map(|line| {
-                if line.starts_with("mc_version:") {
-                    Some(line.trim_start_matches("mc_version:").trim().to_string())
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap_or_else(|| "1.20.1".to_string());
-
     Ok(Some(ModpackInfo {
         name: modpack_name,
-        version: tag,
-        minecraft_version: mc_version,
-        download_url,
+        version: current_hash,
+        minecraft_version: String::new(),
+        download_url: String::new(),
     }))
 }
 

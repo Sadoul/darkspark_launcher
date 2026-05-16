@@ -171,6 +171,9 @@ pub fn run() {
             launcher::get_launch_progress,
             launcher::is_game_running,
             launcher::cancel_launch,
+            launcher::sync_modpack_files,
+            launcher::get_modpack_discord_url,
+            launcher::get_modpack_manifest_hash,
 
             downloader::download_modpack,
             downloader::get_download_progress,

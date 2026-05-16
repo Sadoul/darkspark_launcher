@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -264,44 +264,132 @@ async fn fetch_build_manifest(client: &reqwest::Client, repo: &str) -> Result<Bu
     response.json::<BuildManifest>().await.map_err(|e| format!("[build] Manifest parse failed: {}", e))
 }
 
+const SYNC_TRACKED_DIRS: &[&str] = &["mods", "config", "resourcepacks", "shaderpacks", "schematics"];
+
+fn modpack_meta_path(modpack_name: &str) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".danganverse")
+        .join("modpacks")
+        .join(format!("{}_meta.json", modpack_name))
+}
+
+fn write_modpack_meta(modpack_name: &str, manifest_hash: &str, discord_url: Option<&str>) {
+    let path = modpack_meta_path(modpack_name);
+    if let Some(parent) = path.parent() { fs::create_dir_all(parent).ok(); }
+    let obj = serde_json::json!({
+        "manifest_hash": manifest_hash,
+        "discord_url": discord_url.unwrap_or(""),
+    });
+    if let Ok(json) = serde_json::to_string(&obj) {
+        let _ = fs::write(&path, json);
+    }
+}
+
+fn read_modpack_meta_hash(modpack_name: &str) -> Option<String> {
+    let path = modpack_meta_path(modpack_name);
+    let text = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v["manifest_hash"].as_str().map(|s| s.to_string())
+}
+
+fn cleanup_stale_in_dir(dir: &PathBuf, mc_dir: &PathBuf, enabled_paths: &HashSet<String>) {
+    let Ok(entries) = fs::read_dir(dir) else { return; };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            cleanup_stale_in_dir(&p, mc_dir, enabled_paths);
+        } else if p.is_file() {
+            let rel = p.strip_prefix(mc_dir)
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if !enabled_paths.contains(&rel) {
+                log(&format!("[build] Removing stale file: {}", p.display()));
+                let _ = fs::remove_file(&p);
+            }
+        }
+    }
+}
+
 async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: &PathBuf) -> Result<Option<BuildManifest>, String> {
     let Some(repo) = build_repo_for_modpack(modpack_name) else { return Ok(None); };
     let manifest = fetch_build_manifest(client, repo).await?;
-    let mods_dir = mc_dir.join("mods");
-    fs::create_dir_all(&mods_dir).map_err(|e| format!("[build] Cannot create mods dir: {}", e))?;
 
-    set_progress("build", 0.0, manifest.mods.len() as f64, "Синхронизация модов сборки...");
-    let enabled: std::collections::HashMap<String, &BuildFileEntry> = manifest.mods.iter()
+    let total = manifest.mods.len() as f64;
+    set_progress("build", 0.0, total, "Синхронизация сборки...");
+
+    // Build set of enabled paths (forward slashes) for cleanup
+    let enabled_paths: HashSet<String> = manifest.mods.iter()
         .filter(|m| m.enabled)
-        .map(|m| (m.name.clone(), m))
+        .map(|m| m.path.clone())
         .collect();
 
-    for entry in manifest.mods.iter().filter(|m| m.enabled) {
+    // Download missing or changed files
+    for (i, entry) in manifest.mods.iter().filter(|m| m.enabled).enumerate() {
         check_launch_cancelled()?;
         let path = mc_dir.join(&entry.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).ok();
+        }
         let needs_download = if path.exists() {
             file_sha1(&path).map(|sha| sha != entry.sha1).unwrap_or(true)
         } else {
             true
         };
         if needs_download {
-            set_progress("build", 0.0, manifest.mods.len() as f64, &format!("Скачивание мода {}", entry.name));
+            set_progress("build", i as f64, total, &format!("Скачивание {}", entry.name));
             download_file(client, &entry.url, &path).await?;
         }
     }
 
-    for file in fs::read_dir(&mods_dir).map_err(|e| format!("[build] Cannot read mods dir: {}", e))? {
-        let file = file.map_err(|e| e.to_string())?;
-        if file.file_type().map_err(|e| e.to_string())?.is_file() {
-            let name = file.file_name().to_string_lossy().to_string();
-            if name.ends_with(".jar") && !enabled.contains_key(&name) {
-                log(&format!("[build] Removing stale mod: {}", name));
-                let _ = fs::remove_file(file.path());
-            }
+    // Remove stale files from all tracked directories
+    for dir_name in SYNC_TRACKED_DIRS {
+        let dir = mc_dir.join(dir_name);
+        if dir.is_dir() {
+            cleanup_stale_in_dir(&dir, mc_dir, &enabled_paths);
         }
     }
-    set_progress("build", manifest.mods.len() as f64, manifest.mods.len() as f64, "Моды сборки синхронизированы");
+
+    // Cache manifest hash and discord_url for update-check and UI
+    let manifest_json = serde_json::to_string(&manifest).unwrap_or_default();
+    let mut h = Sha1::new();
+    h.update(manifest_json.as_bytes());
+    let manifest_hash = format!("{:x}", h.finalize());
+    write_modpack_meta(modpack_name, &manifest_hash, manifest.discord_url.as_deref());
+    log(&format!("[build] Meta cached, hash={}, discord={:?}", manifest_hash, manifest.discord_url));
+
+    set_progress("build", total, total, "Сборка синхронизирована");
     Ok(Some(manifest))
+}
+
+#[tauri::command]
+pub async fn sync_modpack_files(modpack_name: String, game_dir: Option<String>) -> Result<String, String> {
+    LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
+    let client = reqwest::Client::builder()
+        .user_agent("DanganVerseLauncher/2.10")
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mc_dir = game_dir.map(PathBuf::from).unwrap_or_else(get_minecraft_dir);
+    fs::create_dir_all(&mc_dir).ok();
+    match sync_build_files(&client, &modpack_name, &mc_dir).await? {
+        Some(_) => Ok("Сборка синхронизирована".to_string()),
+        None => Ok("Нет манифеста для этой сборки".to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn get_modpack_discord_url(modpack_name: String) -> Option<String> {
+    let path = modpack_meta_path(&modpack_name);
+    let text = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let url = v["discord_url"].as_str().unwrap_or("");
+    if url.is_empty() { None } else { Some(url.to_string()) }
+}
+
+#[tauri::command]
+pub fn get_modpack_manifest_hash(modpack_name: String) -> Option<String> {
+    read_modpack_meta_hash(&modpack_name)
 }
 
 fn is_library_allowed(lib: &Library) -> bool {

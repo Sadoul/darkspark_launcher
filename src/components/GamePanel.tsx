@@ -178,30 +178,6 @@ export default function GamePanel({
   };
 
   const handlePlay = async () => {
-    if (status === "update") {
-      setStatus("downloading");
-      setError("");
-      try {
-        const update = await invoke<any>("check_modpack_update", {
-          modpackName: config.modpackName,
-          githubRepo: config.githubRepo,
-        });
-        if (update) {
-          await invoke("download_modpack", {
-            modpackName: update.name,
-            downloadUrl: update.download_url,
-            version: update.version,
-            minecraftVersion: update.minecraft_version,
-          });
-        }
-        setStatus("ready");
-      } catch (err) {
-        setError(String(err));
-        setStatus("ready");
-      }
-      return;
-    }
-
     if (!account) {
       setError("Войдите в аккаунт перед запуском");
       return;
@@ -421,8 +397,8 @@ export default function GamePanel({
               <span className="play-button-icon">▶</span>
               <span>
                 {checkingUpdate ? "Проверка..."
-                  : status === "update" ? "Обновить"
-                  : status === "downloading" ? "Скачивание..."
+                  : status === "update" ? "Обновить и играть"
+                  : status === "downloading" ? "Загрузка..."
                   : (!allowMultipleInstances && gameRunning) ? "Minecraft уже открыт"
                   : "Играть"}
               </span>
