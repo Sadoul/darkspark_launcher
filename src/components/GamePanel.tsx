@@ -50,7 +50,7 @@ const MODPACK_CONFIGS: Record<string, ModpackConfig> = {
     modpackName: "danganverse",
     defaultVersion: "fabric-1.20.1",
     mcVersion: "1.20.1",
-    bg: ["/backgrounds/danganverse.png", "/backgrounds/danganverse2.jpg"],
+    bg: ["/backgrounds/danganverse.png"],
   },
 };
 
@@ -93,7 +93,7 @@ export default function GamePanel({
 
   const bgImage = useMemo(() => {
     if (!config.bg || config.bg.length === 0) return null;
-    return config.bg[Math.floor(Math.random() * config.bg.length)];
+    return config.bg[0];
   }, [page]);
 
 

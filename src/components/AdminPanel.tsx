@@ -60,8 +60,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
 
   const [saving, setSaving] = useState(false);
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
-  const [newUsername, setNewUsername] = useState("");
-  const [newPassword, setNewPassword] = useState("");
   const [activeBuild, setActiveBuild] = useState("danganverse");
   const [manifest, setManifest] = useState<BuildManifest | null>(null);
   const [uploadingMod, setUploadingMod] = useState(false);
@@ -181,24 +179,6 @@ export default function AdminPanel({ username, isOwner }: Props) {
 
   const updatePassword = (index: number, password: string) => {
     setAccounts(prev => prev.map((row, i) => i === index ? { ...row, password } : row));
-  };
-
-  const addAccount = () => {
-    const nextUsername = newUsername.trim();
-    const nextPassword = newPassword.trim();
-    if (!nextUsername || !nextPassword) {
-      setMessage("Введите ник и пароль нового игрока");
-      return;
-    }
-    if (accounts.some(a => a.username.toLowerCase() === nextUsername.toLowerCase())) {
-      setMessage(`Игрок ${nextUsername} уже есть`);
-      return;
-    }
-    setAccounts(prev => [...prev, { username: nextUsername, password: nextPassword }]);
-    setNewUsername("");
-    setNewPassword("");
-      notify(`Игрок ${nextUsername} добавлен локально. Нажмите подтверждение, чтобы отправить commit.`);
-
   };
 
   const deleteAccount = (account: AccountRow) => {
@@ -326,12 +306,15 @@ export default function AdminPanel({ username, isOwner }: Props) {
       if (lastDropKeyRef.current === key) lastDropKeyRef.current = "";
     }, 1200);
 
-    const jarPaths = paths.filter(path => path.toLowerCase().endsWith(".jar"));
-    if (jarPaths.length === 0) {
-      notify("Перетащите .jar файл мода или нажмите кнопку выбора файла");
+    const uploadablePaths = paths.filter(path => {
+      const lower = path.toLowerCase();
+      return lower.endsWith(".jar") || lower.endsWith(".zip");
+    });
+    if (uploadablePaths.length === 0) {
+      notify("Перетащите .jar (мод) или .zip (ресурспак/шейдер), либо нажмите кнопку выбора файла");
       return;
     }
-    for (const path of jarPaths) {
+    for (const path of uploadablePaths) {
       await uploadModPath(path);
     }
   };
@@ -341,7 +324,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
     const files = Array.from(event.dataTransfer.files);
     const paths = files.map(file => (file as any).path || (file as any).webkitRelativePath).filter(Boolean);
     if (paths.length === 0) {
-      notify("WebView не отдал путь файла. Нажмите «Выбрать .jar» или перетащите файл в окно лаунчера.");
+      notify("WebView не отдал путь файла. Нажмите «Выбрать .jar / .zip» или перетащите файл в окно лаунчера.");
       return;
     }
     await handleDroppedPaths(paths);
@@ -351,7 +334,7 @@ export default function AdminPanel({ username, isOwner }: Props) {
   const chooseModFiles = async () => {
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
-      const selected = await open({ multiple: true, directory: false, filters: [{ name: "Minecraft mods", extensions: ["jar"] }] });
+      const selected = await open({ multiple: true, directory: false, filters: [{ name: "Mods & Packs", extensions: ["jar", "zip"] }] });
       const paths = Array.isArray(selected) ? selected : (typeof selected === "string" ? [selected] : []);
       if (paths.length === 0) return;
       for (const path of paths) {
@@ -453,15 +436,8 @@ export default function AdminPanel({ username, isOwner }: Props) {
       {activeTab === "accounts" && (
         <>
           <div className="admin-note">
-            Здесь можно менять пароли, добавлять игроков и удалять старых. После подтверждения лаунчер сам зашифрует
+            Здесь можно менять пароли и удалять игроков. После подтверждения лаунчер сам зашифрует
             <b> public/auth/offline_accounts.danganverseenc</b> и отправит commit в GitHub.
-          </div>
-
-          <div className="admin-add-box">
-            <div className="admin-account-name">Добавить игрока</div>
-            <input className="admin-password-input" value={newUsername} onChange={e => setNewUsername(e.target.value)} placeholder="Ник" />
-            <input className="admin-password-input" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Пароль" />
-            <button className="settings-btn" onClick={addAccount}>Добавить</button>
           </div>
 
           <div className="admin-account-list">
@@ -539,10 +515,10 @@ export default function AdminPanel({ username, isOwner }: Props) {
               </div>
 
               <div className="admin-drop-zone" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
-                <div>{uploadingMod ? "Загрузка мода на GitHub..." : "Перетащите .jar моды сюда или на список ниже, чтобы добавить в сборку"}</div>
+                <div>{uploadingMod ? "Загрузка файла на GitHub..." : "Перетащите .jar (мод) или .zip (ресурспак/шейдер) сюда или на список ниже"}</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                   <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod || uploadingBuild}>
-                    Выбрать .jar
+                    Выбрать .jar / .zip
                   </button>
                   <button className="settings-btn compact" type="button" onClick={uploadModpackFolder} disabled={uploadingMod || uploadingBuild} title="Загрузить mods/, config/, resourcepacks/, shaderpacks/, schematics/, options.txt на GitHub">
                     {uploadingBuild ? "Загрузка сборки..." : "📁 Загрузить папку сборки"}

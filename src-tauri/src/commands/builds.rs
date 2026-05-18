@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::sync::Mutex;
-
+use zip::write::SimpleFileOptions;
 
 const BUILD_BRANCH: &str = "main";
 const USER_AGENT: &str = "DanganVerseLauncher-BuildAdmin";
@@ -43,6 +43,23 @@ struct GitHubContentResponse {
     content: String,
     #[serde(default)]
     download_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct GitTreeEntry {
+    pub path: String,
+    pub mode: String,
+    pub r#type: String,
+    pub sha: String,
+    pub size: Option<u64>,
+    pub url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitTreeResponse {
+    sha: String,
+    tree: Vec<GitTreeEntry>,
+    truncated: bool,
 }
 
 fn default_enabled() -> bool { true }
@@ -157,6 +174,14 @@ fn github_client() -> Result<reqwest::Client, String> {
         .map_err(|e| e.to_string())
 }
 
+fn github_upload_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 fn sha1_file(path: &Path) -> Result<String, String> {
     let bytes = fs::read(path).map_err(|e| format!("Не удалось прочитать файл {}: {e}", path.display()))?;
     let mut hasher = Sha1::new();
@@ -176,6 +201,9 @@ async fn get_github_file(client: &reqwest::Client, token: &str, api_url: &str) -
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Токен GitHub недействителен или истёк. Проверьте: токен должен иметь разрешение «Contents: Read and write» для репозитория Sadoul/darkspark_modpack. Fine-grained PAT: нужно выбрать этот репозиторий в настройках токена.".to_string());
+    }
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -184,7 +212,7 @@ async fn get_github_file(client: &reqwest::Client, token: &str, api_url: &str) -
     response.json::<GitHubContentResponse>().await.map(Some).map_err(|e| e.to_string())
 }
 
-async fn put_github_file(
+async fn put_github_file_with_client(
     client: &reqwest::Client,
     token: &str,
     api_url: &str,
@@ -258,7 +286,7 @@ pub async fn upload_modpack_build(
         *p = Some(UploadProgress { done: 0, total, current: "Начинаю загрузку...".to_string(), errors: vec![], finished: false });
     }
 
-    let client = github_client()?;
+    let client = github_upload_client()?;
     let mut entries: Vec<BuildFileEntry> = Vec::new();
 
     for (i, file_path) in files.iter().enumerate() {
@@ -301,7 +329,7 @@ pub async fn upload_modpack_build(
             }
         }
 
-        match put_github_file(
+        match put_github_file_with_client(
             &client,
             &token,
             &api,
@@ -374,7 +402,7 @@ pub async fn commit_build_manifest(build: String, github_token: String, manifest
     let client = github_client()?;
     let current = get_github_file(&client, token, &manifest_api(repo)).await?;
     let bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
-    put_github_file(
+    put_github_file_with_client(
         &client,
         token,
         &manifest_api(repo),
@@ -386,29 +414,117 @@ pub async fn commit_build_manifest(build: String, github_token: String, manifest
 }
 
 #[tauri::command]
+pub async fn get_build_git_tree(build: String, github_token: String) -> Result<Vec<GitTreeEntry>, String> {
+    let repo = repo_for_build(&build)?;
+    let token = github_token.trim();
+    let client = github_client()?;
+    
+    let api_url = format!("https://api.github.com/repos/{repo}/git/trees/{BUILD_BRANCH}?recursive=1");
+    let response = client
+        .get(&api_url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+        
+    if !response.status().is_success() {
+        return Err(format!("GitHub вернул HTTP {}", response.status()));
+    }
+    
+    let json = response.json::<GitTreeResponse>().await.map_err(|e| format!("Не удалось разобрать дерево: {e}"))?;
+    Ok(json.tree)
+}
+
+fn zip_directory(dir: &Path) -> Result<Vec<u8>, String> {
+    let mut buffer = Vec::new();
+    {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(current_dir) = stack.pop() {
+            let entries = fs::read_dir(&current_dir).map_err(|e| format!("Не удалось прочитать папку: {e}"))?;
+            for entry in entries {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let path = entry.path();
+                let name = path.strip_prefix(dir).unwrap().to_string_lossy().replace("\\", "/");
+                
+                if path.is_dir() {
+                    zip.add_directory(&name, options).map_err(|e| e.to_string())?;
+                    stack.push(path);
+                } else {
+                    zip.start_file(&name, options).map_err(|e| e.to_string())?;
+                    let mut f = fs::File::open(&path).map_err(|e| e.to_string())?;
+                    let mut b = Vec::new();
+                    f.read_to_end(&mut b).map_err(|e| e.to_string())?;
+                    zip.write_all(&b).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        zip.finish().map_err(|e| format!("Ошибка создания архива: {e}"))?;
+    }
+    Ok(buffer)
+}
+
+#[tauri::command]
 pub async fn upload_build_mod(build: String, github_token: String, file_path: String, target_name: Option<String>) -> Result<BuildFileEntry, String> {
     let repo = repo_for_build(&build)?;
     let token = github_token.trim();
     let path = PathBuf::from(&file_path);
-    let file_name = target_name
+    
+    let is_dir = path.is_dir();
+    let mut file_name = target_name
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().to_string());
-    if !file_name.ends_with(".jar") {
-        return Err("Можно загружать только .jar моды".to_string());
+        
+    let bytes = if is_dir {
+        if !file_name.ends_with(".zip") {
+            file_name = format!("{}.zip", file_name);
+        }
+        zip_directory(&path)?
+    } else {
+        fs::read(&path).map_err(|e| format!("Не удалось прочитать файл: {e}"))?
+    };
+    
+    let mut folder = "mods";
+    if file_name.ends_with(".zip") {
+        if is_dir {
+            if path.join("pack.mcmeta").exists() {
+                folder = "resourcepacks";
+            } else if path.join("shaders").exists() || path.join("shaders").is_dir() {
+                folder = "shaderpacks";
+            }
+        } else {
+            if let Ok(mut archive) = zip::ZipArchive::new(std::io::Cursor::new(&bytes)) {
+                let mut has_mcmeta = false;
+                let mut has_shaders = false;
+                for i in 0..archive.len() {
+                    if let Ok(file) = archive.by_index(i) {
+                        let name = file.name();
+                        if name == "pack.mcmeta" { has_mcmeta = true; }
+                        if name.starts_with("shaders/") { has_shaders = true; }
+                    }
+                }
+                if has_mcmeta { folder = "resourcepacks"; }
+                else if has_shaders { folder = "shaderpacks"; }
+            }
+        }
     }
-    let bytes = fs::read(&path).map_err(|e| format!("Не удалось прочитать мод: {e}"))?;
+    
     let size = bytes.len() as u64;
-    let sha1 = sha1_file(&path)?;
-    let remote_path = format!("mods/{file_name}");
+    let mut h = Sha1::new();
+    h.update(&bytes);
+    let sha1 = format!("{:x}", h.finalize());
+    let remote_path = format!("{folder}/{file_name}");
 
-    let client = github_client()?;
+    let client = github_upload_client()?;
     let api = file_api(repo, &remote_path);
     let current = get_github_file(&client, token, &api).await?;
-    put_github_file(
+    put_github_file_with_client(
         &client,
         token,
         &api,
-        &format!("chore: upload mod {file_name} from launcher admin panel"),
+        &format!("chore: upload {} {} from launcher admin panel", folder, file_name),
         &bytes,
         current.map(|f| f.sha),
     ).await?;
