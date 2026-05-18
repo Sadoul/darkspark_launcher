@@ -250,13 +250,31 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
     } : prev);
   };
 
-  const deleteMod = (mod: BuildFileEntry) => {
+  const deleteMod = async (mod: BuildFileEntry) => {
+    const treeEntry = repoTree.find(e => e.path === mod.path && e.type === "blob");
+    const willDeleteGithub = !!treeEntry;
     const ok = window.confirm(
-      `Удалить мод из сборки?\n\n${mod.name}\n\nФайл останется в GitHub, но после сохранения manifest клиент перестанет скачивать этот мод.`
+      `Удалить мод ${mod.name}?\n\n` +
+      (willDeleteGithub
+        ? "Файл будет удалён из GitHub и из списка манифеста."
+        : "Файл не найден в дереве GitHub — удаляется только из списка манифеста.")
     );
     if (!ok) return;
+    if (willDeleteGithub && treeEntry) {
+      setDeletingPath(treeEntry.path);
+      try {
+        await invoke("delete_build_file", { build: activeBuild, githubToken, filePath: treeEntry.path, sha: treeEntry.sha });
+        const newTree = repoTree.filter(e => e.path !== treeEntry.path);
+        setRepoTree(newTree);
+        setBuiltTree(buildFileTree(newTree));
+      } catch (e) {
+        notify(`Ошибка удаления с GitHub: ${String(e)}`);
+      } finally {
+        setDeletingPath(null);
+      }
+    }
     setManifest(prev => prev ? { ...prev, mods: prev.mods.filter(m => m.name !== mod.name) } : prev);
-    notify(`Мод ${mod.name} удалён из списка. Нажмите commit, чтобы сохранить изменение.`);
+    notify(`Мод ${mod.name} удалён. Нажмите commit, чтобы сохранить manifest.`);
   };
 
 
@@ -320,6 +338,7 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
         ...prev,
         mods: [...prev.mods.filter(m => m.name !== entry.name), entry],
       } : prev);
+      if (repoTree.length > 0) loadRepoTree();
       notify(`Мод ${entry.name} загружен. Нажмите «Сохранить manifest», чтобы он вошёл в сборку.`);
 
     } catch (e) {
@@ -446,6 +465,9 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
       const newTree = repoTree.filter(e => e.path !== node.path);
       setRepoTree(newTree);
       setBuiltTree(buildFileTree(newTree));
+      if (node.path.startsWith("mods/")) {
+        setManifest(prev => prev ? { ...prev, mods: prev.mods.filter(m => m.path !== node.path) } : prev);
+      }
       notify(`Удалён: ${node.name}`);
     } catch (e) { notify(`Ошибка удаления: ${String(e)}`); }
     finally { setDeletingPath(null); }
@@ -466,6 +488,8 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
     const remaining = repoTree.filter(e => !e.path.startsWith(node.path + "/") && e.path !== node.path);
     setRepoTree(remaining);
     setBuiltTree(buildFileTree(remaining));
+    const deletedPaths = new Set(blobs.map(b => b.path));
+    setManifest(prev => prev ? { ...prev, mods: prev.mods.filter(m => !deletedPaths.has(m.path)) } : prev);
     setDeletingPath(null);
     notify(`Удалено ${deleted}/${blobs.length} файлов из ${node.name}/`);
   };
@@ -561,7 +585,14 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
       try {
         const entries = await invoke<BuildFileEntry[]>("upload_build_from_zip", { build: activeBuild, githubToken, zipPath: selected });
         const modEntries = entries.filter(e => e.path.startsWith("mods/"));
-        if (modEntries.length > 0) setManifest(prev => prev ? { ...prev, mods: modEntries } : prev);
+        if (modEntries.length > 0) {
+          setManifest(prev => {
+            if (!prev) return prev;
+            const newPaths = new Set(modEntries.map(m => m.path));
+            const kept = prev.mods.filter(m => !newPaths.has(m.path));
+            return { ...prev, mods: [...kept, ...modEntries] };
+          });
+        }
         notify(`ZIP загружен: ${entries.length} файлов. Нажмите «Commit», чтобы сохранить manifest.`);
         await loadRepoTree();
       } catch (e) { notify(`Ошибка загрузки ZIP: ${String(e)}`); }
