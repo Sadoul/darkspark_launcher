@@ -1305,6 +1305,9 @@ button { font-family: inherit; }
   word-break: break-all;
 }
 
+.admin-tree-row { transition: background 0.1s; }
+.admin-tree-row:hover { background: rgba(255,255,255,0.05); }
+
 .admin-build-floating-actions {
   position: static;
   margin-top: 18px;

@@ -37,6 +37,20 @@ interface UploadProgress {
   finished: boolean;
 }
 
+interface GitHubTreeEntry {
+  path: string;
+  mode: string;
+  type: string;
+  sha: string;
+  size?: number;
+  url: string;
+}
+
+interface FileTreeNode extends GitHubTreeEntry {
+  name: string;
+  children: FileTreeNode[];
+}
+
 interface Props {
   username: string;
   isOwner: boolean;
@@ -73,6 +87,14 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
   const uploadPollRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  const [repoTree, setRepoTree] = useState<GitHubTreeEntry[]>([]);
+  const [builtTree, setBuiltTree] = useState<FileTreeNode[]>([]);
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [treeError, setTreeError] = useState("");
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(["mods"]));
+  const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const [showModList, setShowModList] = useState(false);
+
 
   useEffect(() => {
 
@@ -108,6 +130,14 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
   useEffect(() => {
     if (isOwner && githubToken.trim()) loadManifest(activeBuild);
   }, [activeBuild, githubToken, isOwner]);
+
+  useEffect(() => {
+    if (isOwner && githubToken.trim() && manifest && activeTab === "builds") {
+      setRepoTree([]);
+      setBuiltTree([]);
+      setTreeError("");
+    }
+  }, [activeBuild]);
 
   useEffect(() => {
     if (!isOwner || activeTab !== "builds" || !manifest) return;
@@ -346,6 +376,138 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
     }
   };
 
+  const buildFileTree = (entries: GitHubTreeEntry[]): FileTreeNode[] => {
+    const map = new Map<string, FileTreeNode>();
+    for (const e of entries) {
+      const name = e.path.includes("/") ? e.path.split("/").pop()! : e.path;
+      map.set(e.path, { ...e, name, children: [] });
+    }
+    const roots: FileTreeNode[] = [];
+    for (const [path, node] of map) {
+      const idx = path.lastIndexOf("/");
+      if (idx === -1) { roots.push(node); }
+      else {
+        const parent = map.get(path.substring(0, idx));
+        if (parent) parent.children.push(node); else roots.push(node);
+      }
+    }
+    const sort = (nodes: FileTreeNode[]) => {
+      nodes.sort((a, b) => a.type !== b.type ? (a.type === "tree" ? -1 : 1) : a.name.localeCompare(b.name));
+      nodes.forEach(n => n.type === "tree" && sort(n.children));
+    };
+    sort(roots);
+    return roots;
+  };
+
+  const countBlobs = (node: FileTreeNode): number => {
+    if (node.type === "blob") return 1;
+    return node.children.reduce((s, c) => s + countBlobs(c), 0);
+  };
+
+  const getFileIcon = (name: string): string => {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (ext === "jar") return "🟦";
+    if (ext === "zip") return "🗜️";
+    if (ext === "png" || ext === "jpg" || ext === "gif") return "🖼️";
+    if (["json", "toml", "cfg", "conf", "yaml", "yml", "xml", "ini", "properties"].includes(ext)) return "⚙️";
+    if (ext === "txt" || ext === "md") return "📝";
+    return "📄";
+  };
+
+  const loadRepoTree = async () => {
+    if (!githubToken.trim()) { notify("Введите GitHub token"); return; }
+    setTreeLoading(true);
+    setTreeError("");
+    try {
+      const tree = await invoke<GitHubTreeEntry[]>("get_build_git_tree", { build: activeBuild, githubToken });
+      setRepoTree(tree);
+      setBuiltTree(buildFileTree(tree));
+      setExpandedPaths(new Set(["mods"]));
+    } catch (e) {
+      setTreeError(String(e));
+    } finally {
+      setTreeLoading(false);
+    }
+  };
+
+  const toggleExpand = (path: string) => {
+    setExpandedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
+  };
+
+  const deleteFile = async (node: FileTreeNode) => {
+    if (!window.confirm(`Удалить файл из GitHub?\n\n${node.path}`)) return;
+    setDeletingPath(node.path);
+    try {
+      await invoke("delete_build_file", { build: activeBuild, githubToken, filePath: node.path, sha: node.sha });
+      const newTree = repoTree.filter(e => e.path !== node.path);
+      setRepoTree(newTree);
+      setBuiltTree(buildFileTree(newTree));
+      notify(`Удалён: ${node.name}`);
+    } catch (e) { notify(`Ошибка удаления: ${String(e)}`); }
+    finally { setDeletingPath(null); }
+  };
+
+  const deleteFolder = async (node: FileTreeNode) => {
+    const blobs = repoTree.filter(e => e.type === "blob" && e.path.startsWith(node.path + "/"));
+    if (blobs.length === 0) { notify("Папка пуста"); return; }
+    if (!window.confirm(`Удалить папку ${node.name}/ и все ${blobs.length} файлов внутри?\n\nЭто необратимо.`)) return;
+    setDeletingPath(node.path);
+    let deleted = 0;
+    for (const blob of blobs) {
+      try {
+        await invoke("delete_build_file", { build: activeBuild, githubToken, filePath: blob.path, sha: blob.sha });
+        deleted++;
+      } catch (e) { notify(`Ошибка: ${blob.path}: ${String(e)}`); }
+    }
+    const remaining = repoTree.filter(e => !e.path.startsWith(node.path + "/") && e.path !== node.path);
+    setRepoTree(remaining);
+    setBuiltTree(buildFileTree(remaining));
+    setDeletingPath(null);
+    notify(`Удалено ${deleted}/${blobs.length} файлов из ${node.name}/`);
+  };
+
+  const renderTreeNode = (node: FileTreeNode, depth: number): React.ReactNode => {
+    const isDir = node.type === "tree";
+    const isExpanded = expandedPaths.has(node.path);
+    const isDeleting = deletingPath === node.path || (deletingPath !== null && node.path.startsWith(deletingPath + "/"));
+    return (
+      <div key={node.path}>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 3, paddingLeft: depth * 16 + 6, paddingRight: 6, minHeight: 28, borderRadius: 4, opacity: isDeleting ? 0.35 : 1, transition: "opacity 0.2s" }}
+          className="admin-tree-row"
+        >
+          {isDir
+            ? <button onClick={() => toggleExpand(node.path)} style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", fontSize: 10, color: "inherit", width: 14, flexShrink: 0, opacity: 0.6 }}>{isExpanded ? "▼" : "▶"}</button>
+            : <span style={{ width: 14, flexShrink: 0, display: "inline-block" }} />}
+          <span style={{ fontSize: 13, flexShrink: 0 }}>{isDir ? "📁" : getFileIcon(node.name)}</span>
+          <span style={{ flex: 1, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginLeft: 2 }} title={node.path}>
+            {node.name}{isDir && <span style={{ fontSize: 10, opacity: 0.45, marginLeft: 4 }}>({countBlobs(node)})</span>}
+          </span>
+          {!isDir && node.size !== undefined && <span style={{ fontSize: 10, opacity: 0.45, marginRight: 4, whiteSpace: "nowrap" }}>{formatSize(node.size)}</span>}
+          {!isDeleting && (
+            <button className="settings-btn danger compact" style={{ fontSize: 10, padding: "2px 6px", flexShrink: 0 }}
+              onClick={() => isDir ? deleteFolder(node) : deleteFile(node)}
+              disabled={deletingPath !== null}
+              title={isDir ? `Удалить папку ${node.name}/` : `Удалить ${node.name}`}>
+              ✕
+            </button>
+          )}
+          {isDeleting && <span style={{ fontSize: 10, opacity: 0.5, flexShrink: 0 }}>удаление…</span>}
+        </div>
+        {isDir && isExpanded && (
+          <div>
+            {node.children.map(child => renderTreeNode(child, depth + 1))}
+            {node.children.length === 0 && <div style={{ paddingLeft: (depth + 1) * 16 + 20, fontSize: 11, opacity: 0.35, padding: `2px 0 2px ${(depth + 1) * 16 + 20}px` }}>(пусто)</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const uploadModpackFolder = async () => {
     if (!githubToken.trim()) { notify("Введите GitHub token перед загрузкой"); return; }
     try {
@@ -385,6 +547,31 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
     }
   };
 
+  const chooseAndUploadZip = async () => {
+    if (!githubToken.trim()) { notify("Введите GitHub token перед загрузкой"); return; }
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ multiple: false, directory: false, filters: [{ name: "ZIP архив сборки", extensions: ["zip"] }] });
+      if (typeof selected !== "string") return;
+      setUploadingBuild(true);
+      setUploadProgress({ done: 0, total: 0, current: "Извлечение ZIP...", errors: [], finished: false });
+      uploadPollRef.current = window.setInterval(async () => {
+        try { const prog = await invoke<UploadProgress | null>("get_upload_progress"); if (prog) setUploadProgress(prog); } catch {}
+      }, 800);
+      try {
+        const entries = await invoke<BuildFileEntry[]>("upload_build_from_zip", { build: activeBuild, githubToken, zipPath: selected });
+        const modEntries = entries.filter(e => e.path.startsWith("mods/"));
+        if (modEntries.length > 0) setManifest(prev => prev ? { ...prev, mods: modEntries } : prev);
+        notify(`ZIP загружен: ${entries.length} файлов. Нажмите «Commit», чтобы сохранить manifest.`);
+        await loadRepoTree();
+      } catch (e) { notify(`Ошибка загрузки ZIP: ${String(e)}`); }
+      finally {
+        if (uploadPollRef.current !== null) { window.clearInterval(uploadPollRef.current); uploadPollRef.current = null; }
+        setUploadingBuild(false);
+      }
+    } catch (e) { notify(String(e)); }
+  };
+
   const commitManifest = async () => {
     if (!manifest) return;
     setSaving(true);
@@ -398,7 +585,7 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
       setMessage(result);
       const newDiscordUrl = manifest.discord_url || "";
       invoke("update_cached_discord_url", { modpackName: activeBuild, discordUrl: newDiscordUrl }).catch(() => {});
-      if (newDiscordUrl && onDiscordUrlChange) onDiscordUrlChange(newDiscordUrl);
+      if (onDiscordUrlChange) onDiscordUrlChange(newDiscordUrl);
     } catch (e) {
       setMessage(String(e));
     } finally {
@@ -476,17 +663,18 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
       )}
 
       {activeTab === "builds" && isOwner && (
-
         <div className="admin-build-panel">
           <div className="admin-build-tabs">
             {BUILD_NAMES.map(build => (
               <button key={build} className={`admin-build-tab ${activeBuild === build ? "active" : ""}`} onClick={() => setActiveBuild(build)}>
-                {build === "danganverse" ? "DanganVerse" : "MiniGames"}
+                {build === "danganverse" ? "DanganVerse" : build}
               </button>
             ))}
           </div>
+
           {!githubToken.trim() && <div className="admin-message">Введите GitHub token выше, чтобы загрузить настройки сборок.</div>}
           {githubToken.trim() && !manifest && <div className="admin-message">Загружаю manifest сборки...</div>}
+
           {manifest && (
             <>
               <div className="admin-download-dir-row">
@@ -497,35 +685,33 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
                 <button className="settings-btn compact" onClick={chooseDownloadDir}>Изменить</button>
               </div>
 
-              <div className="admin-build-settings" style={{ marginBottom: 28 }}>
+              <div className="admin-build-settings" style={{ marginBottom: 16 }}>
                 <label>
                   Версия Minecraft
                   <select className="admin-password-input" value={manifest.minecraft_version} onChange={e => updateManifest({ minecraft_version: e.target.value })}>
-                    {!availableVersions.includes(manifest.minecraft_version) && (
-                      <option value={manifest.minecraft_version}>{manifest.minecraft_version}</option>
-                    )}
-                    {availableVersions.length > 0 ? (
-                      availableVersions.map(v => <option key={v} value={v}>{v}</option>)
-                    ) : (
-                      <option value={manifest.minecraft_version}>{manifest.minecraft_version}</option>
-                    )}
+                    {!availableVersions.includes(manifest.minecraft_version) && <option value={manifest.minecraft_version}>{manifest.minecraft_version}</option>}
+                    {availableVersions.length > 0 ? availableVersions.map(v => <option key={v} value={v}>{v}</option>) : <option value={manifest.minecraft_version}>{manifest.minecraft_version}</option>}
                   </select>
                 </label>
-
-                <label>Загрузчик<select className="admin-password-input" value={manifest.loader} onChange={e => updateManifest({ loader: e.target.value })}>{LOADERS.map(loader => <option key={loader} value={loader}>{loader}</option>)}</select></label>
-                <label>Версия загрузчика<input className="admin-password-input" value={manifest.loader_version || ""} onChange={e => updateManifest({ loader_version: e.target.value })} placeholder="можно пусто = latest" /></label>
+                <label>Загрузчик<select className="admin-password-input" value={manifest.loader} onChange={e => updateManifest({ loader: e.target.value })}>{LOADERS.map(l => <option key={l} value={l}>{l}</option>)}</select></label>
+                <label>Версия загрузчика<input className="admin-password-input" value={manifest.loader_version || ""} onChange={e => updateManifest({ loader_version: e.target.value })} placeholder="latest" /></label>
                 <label>IP сервера<input className="admin-password-input" value={manifest.server_ip || ""} onChange={e => updateManifest({ server_ip: e.target.value || undefined })} placeholder="play.example.com:25565" /></label>
                 <label>Discord<input className="admin-password-input" value={manifest.discord_url || ""} onChange={e => updateManifest({ discord_url: e.target.value || undefined })} placeholder="https://discord.gg/..." /></label>
               </div>
 
               <div className="admin-drop-zone" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
-                <div>{uploadingMod ? "Загрузка файла на GitHub..." : "Перетащите .jar (мод) или .zip (ресурспак/шейдер) сюда или на список ниже"}</div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                  <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod || uploadingBuild}>
-                    Выбрать .jar / .zip
+                <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
+                  {uploadingMod ? "Загрузка файла на GitHub..." : uploadingBuild ? "Загрузка на GitHub..." : "Перетащите файлы сюда или выберите ниже"}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod || uploadingBuild} title=".jar мод или .zip (ресурспак/шейдер)">
+                    .jar / .zip файл
                   </button>
-                  <button className="settings-btn compact" type="button" onClick={uploadModpackFolder} disabled={uploadingMod || uploadingBuild} title="Загрузить mods/, config/, resourcepacks/, shaderpacks/, schematics/, options.txt на GitHub">
-                    {uploadingBuild ? "Загрузка сборки..." : "📁 Загрузить папку сборки"}
+                  <button className="settings-btn compact" type="button" onClick={chooseAndUploadZip} disabled={uploadingMod || uploadingBuild} title="ZIP-архив со структурой сборки: mods/, config/, resourcepacks/, shaderpacks/, xaero/, options.txt и т.д.">
+                    {uploadingBuild ? "Загрузка..." : "📦 ZIP-сборка"}
+                  </button>
+                  <button className="settings-btn compact" type="button" onClick={uploadModpackFolder} disabled={uploadingMod || uploadingBuild} title="Папка со структурой сборки">
+                    {uploadingBuild ? "Загрузка..." : "📁 Папка сборки"}
                   </button>
                 </div>
               </div>
@@ -538,30 +724,60 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
                   <div className="admin-upload-status">
                     {uploadProgress.total > 0 ? `${uploadProgress.done} / ${uploadProgress.total}` : "…"} — <span style={{ opacity: 0.75 }}>{uploadProgress.current}</span>
                   </div>
-                  {uploadProgress.errors.length > 0 && (
-                    <div className="admin-upload-errors">Ошибки: {uploadProgress.errors.slice(-3).join(" | ")}</div>
-                  )}
+                  {uploadProgress.errors.length > 0 && <div className="admin-upload-errors">Ошибки: {uploadProgress.errors.slice(-3).join(" | ")}</div>}
                 </div>
               )}
 
-
-              <div className="admin-mod-search">
-                <input value={modSearch} onChange={e => setModSearch(e.target.value)} placeholder={`Поиск по модам... (всего: ${manifest.mods.length})`} />
+              <div style={{ marginTop: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>Файлы репозитория</span>
+                  <button className="settings-btn compact" onClick={loadRepoTree} disabled={treeLoading}>
+                    {treeLoading ? "Загрузка..." : "🔄 Обновить"}
+                  </button>
+                </div>
+                {treeError && <div className="admin-message" style={{ color: "#e74c3c", fontSize: 12 }}>{treeError}</div>}
+                {treeLoading && <div className="admin-message" style={{ fontSize: 12, opacity: 0.7 }}>Загружаю дерево файлов с GitHub…</div>}
+                {!treeLoading && builtTree.length === 0 && !treeError && (
+                  <div style={{ fontSize: 12, opacity: 0.45, padding: "8px 0" }}>
+                    Нажмите «Обновить», чтобы загрузить структуру сборки с GitHub
+                  </div>
+                )}
+                {!treeLoading && builtTree.length > 0 && (
+                  <div style={{ background: "rgba(0,0,0,0.22)", borderRadius: 8, padding: "4px 0", maxHeight: 500, overflowY: "auto", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    {builtTree.map(node => renderTreeNode(node, 0))}
+                  </div>
+                )}
               </div>
 
-              <div className="admin-mod-list" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
-                {manifest.mods
-                  .map((mod, originalIndex) => ({ mod, originalIndex }))
-                  .filter(({ mod }) => mod.name.toLowerCase().includes(modSearch.toLowerCase().trim()))
-                  .map(({ mod, originalIndex }) => (
-                  <div className="admin-mod-row" key={`${mod.name}-${mod.sha1}`}>
-                    <input className="admin-password-input" value={mod.name} onChange={e => updateMod(originalIndex, { name: e.target.value, path: `mods/${e.target.value}`, url: mod.url.replace(/mods\/[^/]+$/, `mods/${encodeURIComponent(e.target.value)}`) })} />
-                    <div className="admin-mod-meta">{formatSize(mod.size)}</div>
-                    <label className="admin-mod-enabled"><input type="checkbox" checked={mod.enabled} onChange={e => updateMod(originalIndex, { enabled: e.target.checked })} /><span>Вкл.</span></label>
-                    <button className="settings-btn compact" onClick={() => downloadMod(mod)}>Скачать</button>
-                    <button className="settings-btn danger compact" onClick={() => deleteMod(mod)}>Удалить</button>
-                  </div>
-                ))}
+              <div style={{ marginTop: 16 }}>
+                <button
+                  className="settings-btn compact"
+                  style={{ width: "100%", textAlign: "left", fontSize: 12, justifyContent: "flex-start" }}
+                  onClick={() => setShowModList(v => !v)}
+                >
+                  {showModList ? "▼" : "▶"} Моды в манифесте ({manifest.mods.length}) — вкл/выкл, удаление из списка
+                </button>
+                {showModList && (
+                  <>
+                    <div className="admin-mod-search" style={{ marginTop: 8 }}>
+                      <input value={modSearch} onChange={e => setModSearch(e.target.value)} placeholder={`Поиск... (всего: ${manifest.mods.length})`} />
+                    </div>
+                    <div className="admin-mod-list" onDragOver={e => e.preventDefault()} onDrop={onDropMod}>
+                      {manifest.mods
+                        .map((mod, originalIndex) => ({ mod, originalIndex }))
+                        .filter(({ mod }) => mod.name.toLowerCase().includes(modSearch.toLowerCase().trim()))
+                        .map(({ mod, originalIndex }) => (
+                        <div className="admin-mod-row" key={`${mod.name}-${mod.sha1}`}>
+                          <input className="admin-password-input" value={mod.name} onChange={e => updateMod(originalIndex, { name: e.target.value, path: `mods/${e.target.value}`, url: mod.url.replace(/mods\/[^/]+$/, `mods/${encodeURIComponent(e.target.value)}`) })} />
+                          <div className="admin-mod-meta">{formatSize(mod.size)}</div>
+                          <label className="admin-mod-enabled"><input type="checkbox" checked={mod.enabled} onChange={e => updateMod(originalIndex, { enabled: e.target.checked })} /><span>Вкл.</span></label>
+                          <button className="settings-btn compact" onClick={() => downloadMod(mod)}>Скачать</button>
+                          <button className="settings-btn danger compact" onClick={() => deleteMod(mod)}>Удалить</button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="admin-build-floating-actions">

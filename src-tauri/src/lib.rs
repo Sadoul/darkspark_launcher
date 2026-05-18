@@ -165,6 +165,9 @@ pub fn run() {
             builds::set_build_download_dir,
             builds::download_build_mod_file,
             builds::download_build_bundle,
+            builds::get_build_git_tree,
+            builds::delete_build_file,
+            builds::upload_build_from_zip,
 
 
             launcher::launch_game,

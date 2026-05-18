@@ -608,3 +608,138 @@ pub async fn download_build_bundle(build: String, manifest: BuildManifest) -> Re
 
     Ok(format!("Сборка сохранена в {} (модов: {downloaded})", target_dir.display()))
 }
+
+#[tauri::command]
+pub async fn delete_build_file(
+    build: String,
+    github_token: String,
+    file_path: String,
+    sha: String,
+) -> Result<(), String> {
+    let repo = repo_for_build(&build)?;
+    let token = github_token.trim();
+    let client = github_upload_client()?;
+
+    let api = file_api(repo, &file_path);
+    let payload = serde_json::json!({
+        "message": format!("chore: delete {} via launcher admin panel", file_path),
+        "sha": sha,
+        "branch": BUILD_BRANCH,
+    });
+
+    let response = client
+        .delete(&api)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("GitHub request failed: {e}"))?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Токен GitHub недействителен. Нужно разрешение Contents: Read and write".to_string());
+    }
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("GitHub отклонил удаление {}: {status}. {body}", file_path));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn upload_build_from_zip(
+    build: String,
+    github_token: String,
+    zip_path: String,
+) -> Result<Vec<BuildFileEntry>, String> {
+    let repo = repo_for_build(&build)?;
+    let token = github_token.trim().to_string();
+    let path = PathBuf::from(&zip_path);
+
+    if !path.is_file() {
+        return Err(format!("Файл не найден: {zip_path}"));
+    }
+    let zip_bytes = fs::read(&path).map_err(|e| format!("Не удалось прочитать ZIP: {e}"))?;
+    let cursor = std::io::Cursor::new(&zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
+
+    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
+        if file.is_dir() { continue; }
+        let name = file.name().replace('\\', "/").to_string();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
+        zip_entries.push((name, content));
+    }
+
+    if zip_entries.is_empty() {
+        return Err("ZIP файл пуст или содержит только папки".to_string());
+    }
+
+    let root_prefix: String = {
+        let first = &zip_entries[0].0;
+        if let Some(pos) = first.find('/') {
+            let candidate = format!("{}/", &first[..pos]);
+            if zip_entries.iter().all(|(p, _)| p.starts_with(&candidate)) { candidate } else { String::new() }
+        } else { String::new() }
+    };
+
+    let files_to_upload: Vec<(String, Vec<u8>)> = zip_entries
+        .into_iter()
+        .map(|(p, c)| {
+            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) { p[root_prefix.len()..].to_string() } else { p };
+            (stripped, c)
+        })
+        .filter(|(p, _)| !p.is_empty() && !p.starts_with('.') && !p.contains("__MACOSX"))
+        .collect();
+
+    let total = files_to_upload.len();
+    if total == 0 { return Err("В ZIP нет подходящих файлов для загрузки".to_string()); }
+
+    if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+        *pl = Some(UploadProgress { done: 0, total, current: "Начинаю загрузку из ZIP...".to_string(), errors: vec![], finished: false });
+    }
+
+    let client = github_upload_client()?;
+    let mut entries: Vec<BuildFileEntry> = Vec::new();
+
+    for (i, (rel_path, content)) in files_to_upload.iter().enumerate() {
+        if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+            if let Some(ref mut prog) = *pl { prog.done = i; prog.current = rel_path.clone(); }
+        }
+        let size = content.len() as u64;
+        let mut h = Sha1::new(); h.update(content);
+        let sha1 = format!("{:x}", h.finalize());
+        let api = file_api(repo, rel_path);
+        let existing = get_github_file(&client, &token, &api).await.ok().flatten();
+        let git_sha = git_blob_sha1(content);
+        if let Some(ref ex) = existing {
+            if ex.sha == git_sha {
+                let name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
+                entries.push(BuildFileEntry { name, path: rel_path.clone(), url: raw_url(repo, rel_path), sha1, size, enabled: true });
+                continue;
+            }
+        }
+        match put_github_file_with_client(&client, &token, &api, &format!("build: upload {} from ZIP", rel_path), content, existing.map(|f| f.sha)).await {
+            Ok(()) => {
+                let name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
+                entries.push(BuildFileEntry { name, path: rel_path.clone(), url: raw_url(repo, rel_path), sha1, size, enabled: true });
+            }
+            Err(e) => {
+                if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+                    if let Some(ref mut prog) = *pl { prog.errors.push(format!("{rel_path}: {e}")); }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+        if let Some(ref mut prog) = *pl {
+            prog.done = total;
+            prog.current = format!("Готово! Загружено: {} из {total}", entries.len());
+            prog.finished = true;
+        }
+    }
+    Ok(entries)
+}
