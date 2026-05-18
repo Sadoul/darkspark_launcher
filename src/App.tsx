@@ -398,7 +398,14 @@ export default function App() {
                 transition={{ duration: 0.3 }}
               >
                 <div className="panel-bg panel-bg-uniform" style={{ backgroundImage: "url(/backgrounds/default_background.png)" }} />
-                <AdminPanel username={account.username} isOwner={!!account.is_owner} />
+                <AdminPanel
+                  username={account.username}
+                  isOwner={!!account.is_owner}
+                  onDiscordUrlChange={(url) => {
+                    setDiscordUrl(url);
+                    localStorage.setItem(DISCORD_URL_STORAGE, url);
+                  }}
+                />
               </motion.div>
             ) : currentPage === "custom" ? (
               <motion.div

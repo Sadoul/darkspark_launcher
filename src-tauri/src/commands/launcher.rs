@@ -382,6 +382,16 @@ pub async fn sync_modpack_files(modpack_name: String, game_dir: Option<String>) 
 }
 
 #[tauri::command]
+pub fn update_cached_discord_url(modpack_name: String, discord_url: String) {
+    let path = modpack_meta_path(&modpack_name);
+    let existing_hash = fs::read_to_string(&path).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v["manifest_hash"].as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    write_modpack_meta(&modpack_name, &existing_hash, Some(discord_url.trim()));
+}
+
+#[tauri::command]
 pub fn get_modpack_discord_url(modpack_name: String) -> Option<String> {
     let path = modpack_meta_path(&modpack_name);
     let text = fs::read_to_string(path).ok()?;

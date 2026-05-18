@@ -40,6 +40,7 @@ interface UploadProgress {
 interface Props {
   username: string;
   isOwner: boolean;
+  onDiscordUrlChange?: (url: string) => void;
 }
 
 
@@ -49,7 +50,7 @@ const LOADERS = ["vanilla", "forge", "fabric", "neoforge", "optifine"];
 
 const formatSize = (size: number) => `${(size / 1024 / 1024).toFixed(1)} МБ`;
 
-export default function AdminPanel({ username, isOwner }: Props) {
+export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Props) {
 
   const [activeTab, setActiveTab] = useState<"accounts" | "builds">("accounts");
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
@@ -395,6 +396,9 @@ export default function AdminPanel({ username, isOwner }: Props) {
         manifest,
       });
       setMessage(result);
+      const newDiscordUrl = manifest.discord_url || "";
+      invoke("update_cached_discord_url", { modpackName: activeBuild, discordUrl: newDiscordUrl }).catch(() => {});
+      if (newDiscordUrl && onDiscordUrlChange) onDiscordUrlChange(newDiscordUrl);
     } catch (e) {
       setMessage(String(e));
     } finally {

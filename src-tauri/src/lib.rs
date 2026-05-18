@@ -173,6 +173,7 @@ pub fn run() {
             launcher::cancel_launch,
             launcher::sync_modpack_files,
             launcher::get_modpack_discord_url,
+            launcher::update_cached_discord_url,
             launcher::get_modpack_manifest_hash,
 
             downloader::download_modpack,
