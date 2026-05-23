@@ -7,6 +7,18 @@ use std::io::{Read, Write};
 use std::sync::Mutex;
 use zip::write::SimpleFileOptions;
 
+use super::logger::log as launcher_log;
+
+fn token_preview(token: &str) -> String {
+    let len = token.len();
+    if len == 0 {
+        return "<empty>".to_string();
+    }
+    let prefix: String = token.chars().take(4).collect();
+    let suffix: String = token.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    format!("{prefix}…{suffix} (len={len})")
+}
+
 const BUILD_BRANCH: &str = "main";
 const USER_AGENT: &str = "DanganVerseLauncher-BuildAdmin";
 
@@ -190,26 +202,51 @@ fn sha1_file(path: &Path) -> Result<String, String> {
 }
 
 async fn get_github_file(client: &reqwest::Client, token: &str, api_url: &str) -> Result<Option<GitHubContentResponse>, String> {
+    launcher_log(&format!("[builds] GET {api_url} (token={})", token_preview(token)));
     let response = client
         .get(api_url)
         .bearer_auth(token)
         .query(&[("ref", BUILD_BRANCH)])
         .send()
         .await
-        .map_err(|e| format!("GitHub request failed: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("GitHub request failed: {e}");
+            launcher_log(&format!("[builds] GET {api_url} network error: {e}"));
+            msg
+        })?;
 
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
+    let status = response.status();
+    launcher_log(&format!("[builds] GET {api_url} -> {status}"));
+
+    if status == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        let body = response.text().await.unwrap_or_default();
+        launcher_log(&format!("[builds] 401 body: {body}"));
         return Err("Токен GitHub недействителен или истёк. Проверьте: токен должен иметь разрешение «Contents: Read and write» для репозитория Sadoul/darkspark_modpack. Fine-grained PAT: нужно выбрать этот репозиторий в настройках токена.".to_string());
     }
-    if !response.status().is_success() {
-        let status = response.status();
+    if status == reqwest::StatusCode::FORBIDDEN {
         let body = response.text().await.unwrap_or_default();
+        launcher_log(&format!("[builds] 403 body: {body}"));
+        let hint = if body.contains("rate limit") {
+            "GitHub вернул 403 (rate limit). Проверьте, что токен реально передаётся (не пустая строка) и что у токена есть доступ к Sadoul/darkspark_modpack. Если используете VPN/Cloudflare Warp — попробуйте отключить."
+        } else if body.contains("Resource not accessible") {
+            "GitHub вернул 403 «Resource not accessible by personal access token». Fine-grained PAT не выбрал репозиторий Sadoul/darkspark_modpack или нет разрешения Contents: Read and write."
+        } else {
+            "GitHub вернул 403 Forbidden. У токена нет write-доступа к репозиторию Sadoul/darkspark_modpack либо аккаунт не является collaborator."
+        };
+        return Err(format!("{hint}\n\nПолный ответ: {body}"));
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        launcher_log(&format!("[builds] {status} body: {body}"));
         return Err(format!("GitHub вернул {status}: {body}"));
     }
-    response.json::<GitHubContentResponse>().await.map(Some).map_err(|e| e.to_string())
+    response.json::<GitHubContentResponse>().await.map(Some).map_err(|e| {
+        launcher_log(&format!("[builds] GET {api_url} json parse error: {e}"));
+        e.to_string()
+    })
 }
 
 async fn put_github_file_with_client(
@@ -229,18 +266,43 @@ async fn put_github_file_with_client(
         payload["sha"] = serde_json::Value::String(sha);
     }
 
+    launcher_log(&format!("[builds] PUT {api_url} ({} bytes, token={})", content.len(), token_preview(token)));
+
     let response = client
         .put(api_url)
         .bearer_auth(token)
         .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("GitHub upload failed: {e}"))?;
+        .map_err(|e| {
+            launcher_log(&format!("[builds] PUT {api_url} network error: {e}"));
+            format!("GitHub upload failed: {e}")
+        })?;
 
-    if !response.status().is_success() {
-        let status = response.status();
+    let status = response.status();
+    launcher_log(&format!("[builds] PUT {api_url} -> {status}"));
+
+    if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("GitHub отклонил commit: {status}. {body}"));
+        launcher_log(&format!("[builds] PUT {api_url} error body: {body}"));
+        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
+            "Токен недействителен или истёк."
+        } else if status == reqwest::StatusCode::FORBIDDEN {
+            if body.contains("Resource not accessible") {
+                "У токена нет прав на запись в этот репозиторий. Нужно: Contents: Read and write + выбран репозиторий Sadoul/darkspark_modpack."
+            } else if body.contains("rate limit") {
+                "GitHub rate limit. Попробуйте через несколько минут или отключите VPN/Warp."
+            } else {
+                "GitHub отказал в доступе."
+            }
+        } else if status == reqwest::StatusCode::CONFLICT {
+            "Конфликт sha (файл уже изменили). Перезагрузите дерево и попробуйте снова."
+        } else if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            "GitHub отклонил тело запроса (422). Возможно, файл слишком большой (>100 МБ) или неверный sha."
+        } else {
+            "Неизвестная ошибка GitHub."
+        };
+        return Err(format!("GitHub отклонил commit: {status}. {hint}\n\nПолный ответ: {body}"));
     }
     Ok(())
 }
@@ -271,6 +333,15 @@ pub async fn upload_modpack_build(
     let repo = repo_for_build(&build)?;
     let token = github_token.trim().to_string();
     let base = PathBuf::from(&folder_path);
+
+    launcher_log(&format!(
+        "[builds] upload_modpack_build start: build={build}, repo={repo}, folder={folder_path}, token={}",
+        token_preview(&token)
+    ));
+
+    if token.is_empty() {
+        return Err("GitHub токен не задан. Сохраните токен в админ-панели перед загрузкой.".to_string());
+    }
 
     if !base.is_dir() {
         return Err(format!("Папка не найдена: {folder_path}"));
@@ -471,6 +542,15 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
     let repo = repo_for_build(&build)?;
     let token = github_token.trim();
     let path = PathBuf::from(&file_path);
+
+    launcher_log(&format!(
+        "[builds] upload_build_mod start: build={build}, repo={repo}, file={file_path}, token={}",
+        token_preview(token)
+    ));
+
+    if token.is_empty() {
+        return Err("GitHub токен не задан. Сохраните токен в админ-панели перед загрузкой.".to_string());
+    }
     
     let is_dir = path.is_dir();
     let mut file_name = target_name
@@ -620,6 +700,15 @@ pub async fn delete_build_file(
     let token = github_token.trim();
     let client = github_upload_client()?;
 
+    launcher_log(&format!(
+        "[builds] delete_build_file: build={build}, repo={repo}, path={file_path}, token={}",
+        token_preview(token)
+    ));
+
+    if token.is_empty() {
+        return Err("GitHub токен не задан.".to_string());
+    }
+
     let api = file_api(repo, &file_path);
     let payload = serde_json::json!({
         "message": format!("chore: delete {} via launcher admin panel", file_path),
@@ -633,14 +722,20 @@ pub async fn delete_build_file(
         .json(&payload)
         .send()
         .await
-        .map_err(|e| format!("GitHub request failed: {e}"))?;
+        .map_err(|e| {
+            launcher_log(&format!("[builds] DELETE {api} network error: {e}"));
+            format!("GitHub request failed: {e}")
+        })?;
 
-    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+    let status = response.status();
+    launcher_log(&format!("[builds] DELETE {api} -> {status}"));
+
+    if status == reqwest::StatusCode::UNAUTHORIZED {
         return Err("Токен GitHub недействителен. Нужно разрешение Contents: Read and write".to_string());
     }
-    if !response.status().is_success() {
-        let status = response.status();
+    if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
+        launcher_log(&format!("[builds] DELETE {api} body: {body}"));
         return Err(format!("GitHub отклонил удаление {}: {status}. {body}", file_path));
     }
     Ok(())
@@ -655,6 +750,15 @@ pub async fn upload_build_from_zip(
     let repo = repo_for_build(&build)?;
     let token = github_token.trim().to_string();
     let path = PathBuf::from(&zip_path);
+
+    launcher_log(&format!(
+        "[builds] upload_build_from_zip start: build={build}, repo={repo}, zip={zip_path}, token={}",
+        token_preview(&token)
+    ));
+
+    if token.is_empty() {
+        return Err("GitHub токен не задан. Сохраните токен в админ-панели перед загрузкой.".to_string());
+    }
 
     if !path.is_file() {
         return Err(format!("Файл не найден: {zip_path}"));

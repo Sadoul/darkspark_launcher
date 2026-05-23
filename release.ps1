@@ -7,19 +7,33 @@ $conf = Get-Content "src-tauri\tauri.conf.json" | ConvertFrom-Json
 $VERSION = $conf.version
 $TAG     = "v$VERSION"
 
+# Автоинкремент patch если тег уже существует
+while (git tag -l $TAG) {
+    Write-Host "[INFO] Тег $TAG уже существует, авто-инкремент версии..." -ForegroundColor Yellow
+    $parts = $VERSION -split '\.'
+    $parts[-1] = [int]$parts[-1] + 1
+    $VERSION = $parts -join '.'
+    $TAG = "v$VERSION"
+
+    # Обновляем версию в файлах
+    $tauriConf = Get-Content "src-tauri\tauri.conf.json" -Raw
+    $tauriConf = $tauriConf -replace '"version": "[^"]*"', "`"version`": `"$VERSION`""
+    Set-Content "src-tauri\tauri.conf.json" $tauriConf -NoNewline
+
+    (Get-Content "src-tauri\Cargo.toml") -replace '^version = ".*"', "version = `"$VERSION`"" |
+        Set-Content "src-tauri\Cargo.toml"
+
+    (Get-Content "stub-rs\Cargo.toml") -replace '^version = ".*"', "version = `"$VERSION`"" |
+        Set-Content "stub-rs\Cargo.toml"
+
+    Write-Host "[INFO] Версия обновлена до $VERSION" -ForegroundColor Cyan
+}
+
 Write-Host ""
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host "  DanganVerse Launcher - Release $TAG" -ForegroundColor Cyan
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
-
-$existingTag = git tag -l $TAG
-if ($existingTag) {
-    Write-Host "[WARN] Тег $TAG уже существует локально." -ForegroundColor Yellow
-    $answer = Read-Host "Удалить его и пересоздать? (y/N)"
-    if ($answer -ne "y") { exit 1 }
-    git tag -d $TAG
-}
 
 Write-Host "[1/4] Генерация иконок из images/icons/launcher.png..." -ForegroundColor Green
 npx @tauri-apps/cli icon images/icons/launcher.png
@@ -54,8 +68,8 @@ Write-Host "[4/4] Публикация релиза $TAG на GitHub..." -Foregr
 
 $staged = git status --porcelain
 if ($staged) {
-    git add src-tauri/icons/ src-tauri/src/ src-tauri/Cargo.toml src-tauri/tauri.conf.json stub-rs/
-    git commit -m "chore: release $TAG"
+    git add src-tauri/icons/ src-tauri/src/ src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/ stub-rs/ release.ps1
+    git commit -m "Починили логирование"
 }
 
 git tag $TAG

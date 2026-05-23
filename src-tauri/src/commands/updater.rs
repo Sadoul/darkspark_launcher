@@ -150,12 +150,34 @@ pub async fn check_launcher_update() -> Result<UpdateInfo, String> {
 
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
-        let msg = format!(
-            "[updater] GitHub API returned {}. Private repo token is missing/expired/forbidden. Body: {}",
-            status,
-            body
-        );
+        let is_rate_limit = body.contains("rate limit") || body.contains("API rate limit");
+        let msg = if is_rate_limit {
+            format!(
+                "[updater] GitHub rate limit exceeded for this IP (anonymous limit = 60/hour). Skipping update check this run. Body: {}",
+                body
+            )
+        } else {
+            format!(
+                "[updater] GitHub API returned {}. Update check failed. Body: {}",
+                status, body
+            )
+        };
         launcher_log(&msg);
+
+        // For rate-limit / 403 we silently skip the update check rather than
+        // surfacing a scary "token expired" error to the user. Return a
+        // "no update available" result so the rest of the launcher works.
+        if is_rate_limit || status == reqwest::StatusCode::FORBIDDEN {
+            return Ok(UpdateInfo {
+                current_version: CURRENT_VERSION.to_string(),
+                latest_version: CURRENT_VERSION.to_string(),
+                update_available: false,
+                download_url: String::new(),
+                installer_url: String::new(),
+                release_notes: String::new(),
+                file_size: 0,
+            });
+        }
         return Err(msg);
     }
 
