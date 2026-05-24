@@ -22,6 +22,11 @@ fn token_preview(token: &str) -> String {
 const BUILD_BRANCH: &str = "main";
 const USER_AGENT: &str = "DanganVerseLauncher-BuildAdmin";
 
+// GitHub Contents API hard limit is 100 MB. We upload files larger than this
+// threshold as release assets (Releases support up to 2 GB per file).
+const LARGE_FILE_THRESHOLD: u64 = 95 * 1024 * 1024;
+const STORAGE_RELEASE_TAG: &str = "storage";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BuildManifest {
     pub name: String,
@@ -189,7 +194,8 @@ fn github_client() -> Result<reqwest::Client, String> {
 fn github_upload_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
-        .timeout(std::time::Duration::from_secs(600))
+        // Large release assets (>100 MB) need plenty of headroom on slow links.
+        .timeout(std::time::Duration::from_secs(60 * 60))
         .build()
         .map_err(|e| e.to_string())
 }
@@ -307,6 +313,235 @@ async fn put_github_file_with_client(
     Ok(())
 }
 
+// ---- Release-asset upload (for files > 100 MB) -----------------------------
+
+#[derive(Debug, Deserialize)]
+struct GitHubRelease {
+    id: u64,
+    #[serde(default)]
+    assets: Vec<GitHubReleaseAsset>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct GitHubReleaseAsset {
+    id: u64,
+    name: String,
+    browser_download_url: String,
+    #[serde(default)]
+    size: u64,
+}
+
+/// Sanitize a path so it can become a release-asset file name. GitHub's
+/// `uploads.github.com` accepts a flat name; `/` becomes `__`.
+fn asset_name_for_path(rel_path: &str) -> String {
+    rel_path.replace('/', "__")
+}
+
+async fn get_or_create_storage_release(
+    client: &reqwest::Client,
+    token: &str,
+    repo: &str,
+) -> Result<GitHubRelease, String> {
+    let api = format!(
+        "https://api.github.com/repos/{repo}/releases/tags/{STORAGE_RELEASE_TAG}"
+    );
+    launcher_log(&format!("[builds] storage release lookup: {api}"));
+
+    let response = client
+        .get(&api)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("Storage release lookup failed: {e}"))?;
+
+    let status = response.status();
+    if status.is_success() {
+        return response
+            .json::<GitHubRelease>()
+            .await
+            .map_err(|e| format!("Не удалось разобрать storage release: {e}"));
+    }
+
+    if status != reqwest::StatusCode::NOT_FOUND {
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Storage release lookup HTTP {status}. Тело: {body}"
+        ));
+    }
+
+    // Create the release if it does not exist yet.
+    launcher_log(&format!("[builds] creating storage release on {repo}"));
+    let create_api = format!("https://api.github.com/repos/{repo}/releases");
+    let payload = serde_json::json!({
+        "tag_name": STORAGE_RELEASE_TAG,
+        "target_commitish": BUILD_BRANCH,
+        "name": "Modpack large file storage",
+        "body": "Авто-релиз для хранения файлов >100 МБ. Управляется лаунчером.",
+        "draft": false,
+        "prerelease": true,
+    });
+
+    let create = client
+        .post(&create_api)
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Создание storage release failed: {e}"))?;
+
+    let create_status = create.status();
+    if !create_status.is_success() {
+        let body = create.text().await.unwrap_or_default();
+        return Err(format!(
+            "Не удалось создать storage release: {create_status}. {body}"
+        ));
+    }
+    create
+        .json::<GitHubRelease>()
+        .await
+        .map_err(|e| format!("Storage release create parse failed: {e}"))
+}
+
+async fn delete_release_asset(
+    client: &reqwest::Client,
+    token: &str,
+    repo: &str,
+    asset_id: u64,
+) -> Result<(), String> {
+    let url = format!(
+        "https://api.github.com/repos/{repo}/releases/assets/{asset_id}"
+    );
+    launcher_log(&format!("[builds] DELETE asset {url}"));
+    let resp = client
+        .delete(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| format!("Asset delete failed: {e}"))?;
+    if !resp.status().is_success() && resp.status() != reqwest::StatusCode::NOT_FOUND {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Asset delete {status}: {body}"));
+    }
+    Ok(())
+}
+
+/// Upload a file as a release asset and return its public download URL.
+/// Replaces any existing asset with the same name.
+async fn upload_as_release_asset(
+    client: &reqwest::Client,
+    token: &str,
+    repo: &str,
+    rel_path: &str,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    let release = get_or_create_storage_release(client, token, repo).await?;
+    let asset_name = asset_name_for_path(rel_path);
+
+    // If an asset with the same name AND same size already exists, skip
+    // re-upload — this saves bandwidth on rebuilds where the file did not
+    // actually change.
+    if let Some(existing) = release.assets.iter().find(|a| a.name == asset_name) {
+        if existing.size == bytes.len() as u64 {
+            launcher_log(&format!(
+                "[builds] release asset {} unchanged (size={}), skipping",
+                asset_name, existing.size
+            ));
+            return Ok(existing.browser_download_url.clone());
+        }
+        launcher_log(&format!(
+            "[builds] replacing existing asset {} (id={}, old size={}, new size={})",
+            existing.name, existing.id, existing.size, bytes.len()
+        ));
+        delete_release_asset(client, token, repo, existing.id).await?;
+    }
+
+    let upload_url = format!(
+        "https://uploads.github.com/repos/{repo}/releases/{}/assets?name={}",
+        release.id,
+        urlencoding::encode(&asset_name)
+    );
+    launcher_log(&format!(
+        "[builds] uploading release asset {} ({} bytes) to {}",
+        asset_name,
+        bytes.len(),
+        upload_url
+    ));
+
+    let resp = client
+        .post(&upload_url)
+        .bearer_auth(token)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| format!("Asset upload failed: {e}"))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        launcher_log(&format!("[builds] asset upload {status} body: {body}"));
+        let hint = if status == reqwest::StatusCode::FORBIDDEN {
+            "Нет прав на загрузку release asset. Токену нужны Contents + (для fine-grained) разрешение на репозиторий."
+        } else if status == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            "GitHub отклонил ассет (422). Возможно дубликат имени или файл >2 ГБ."
+        } else {
+            "Неизвестная ошибка загрузки release asset."
+        };
+        return Err(format!(
+            "GitHub отклонил release asset: {status}. {hint}\n\nПолный ответ: {body}"
+        ));
+    }
+
+    let asset: GitHubReleaseAsset = resp
+        .json()
+        .await
+        .map_err(|e| format!("Не удалось разобрать ответ asset: {e}"))?;
+    launcher_log(&format!(
+        "[builds] asset uploaded: id={}, url={}",
+        asset.id, asset.browser_download_url
+    ));
+    Ok(asset.browser_download_url)
+}
+
+/// Routes upload to either Contents API (small files) or Releases asset
+/// (files >= LARGE_FILE_THRESHOLD). Returns the public download URL.
+async fn upload_file_smart(
+    client: &reqwest::Client,
+    token: &str,
+    repo: &str,
+    rel_path: &str,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    let size = bytes.len() as u64;
+    if size >= LARGE_FILE_THRESHOLD {
+        launcher_log(&format!(
+            "[builds] {} is {} bytes (>= {}), routing to release-asset upload",
+            rel_path, size, LARGE_FILE_THRESHOLD
+        ));
+        return upload_as_release_asset(client, token, repo, rel_path, bytes).await;
+    }
+
+    let api = file_api(repo, rel_path);
+    let existing = get_github_file(client, token, &api).await.ok().flatten();
+    let git_sha = git_blob_sha1(&bytes);
+    if let Some(ref ex) = existing {
+        if ex.sha == git_sha {
+            return Ok(raw_url(repo, rel_path));
+        }
+    }
+    put_github_file_with_client(
+        client,
+        token,
+        &api,
+        &format!("build: upload {rel_path}"),
+        &bytes,
+        existing.map(|f| f.sha),
+    )
+    .await?;
+    Ok(raw_url(repo, rel_path))
+}
+
 fn default_manifest(build: &str) -> BuildManifest {
     BuildManifest {
         name: build.to_string(),
@@ -387,30 +622,10 @@ pub async fn upload_modpack_build(
         h.update(&bytes);
         let sha1 = format!("{:x}", h.finalize());
 
-        let api = file_api(repo, &rel_str);
-        let existing = get_github_file(&client, &token, &api).await.ok().flatten();
-
-        // Skip upload if file content identical (compare git blob SHA)
-        let git_sha = git_blob_sha1(&bytes);
-        if let Some(ref ex) = existing {
-            if ex.sha == git_sha {
+        match upload_file_smart(&client, &token, repo, &rel_str, bytes).await {
+            Ok(url) => {
                 let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                entries.push(BuildFileEntry { name, path: rel_str.clone(), url: raw_url(repo, &rel_str), sha1, size, enabled: true });
-                continue;
-            }
-        }
-
-        match put_github_file_with_client(
-            &client,
-            &token,
-            &api,
-            &format!("build: upload {rel_str}"),
-            &bytes,
-            existing.map(|f| f.sha),
-        ).await {
-            Ok(()) => {
-                let name = file_path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                entries.push(BuildFileEntry { name, path: rel_str.clone(), url: raw_url(repo, &rel_str), sha1, size, enabled: true });
+                entries.push(BuildFileEntry { name, path: rel_str.clone(), url, sha1, size, enabled: true });
             }
             Err(e) => {
                 if let Ok(mut p) = UPLOAD_PROGRESS.lock() {
@@ -598,21 +813,12 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
     let remote_path = format!("{folder}/{file_name}");
 
     let client = github_upload_client()?;
-    let api = file_api(repo, &remote_path);
-    let current = get_github_file(&client, token, &api).await?;
-    put_github_file_with_client(
-        &client,
-        token,
-        &api,
-        &format!("chore: upload {} {} from launcher admin panel", folder, file_name),
-        &bytes,
-        current.map(|f| f.sha),
-    ).await?;
+    let url = upload_file_smart(&client, token, repo, &remote_path, bytes).await?;
 
     Ok(BuildFileEntry {
         name: file_name.clone(),
         path: remote_path.clone(),
-        url: raw_url(repo, &remote_path),
+        url,
         sha1,
         size,
         enabled: true,
@@ -709,6 +915,23 @@ pub async fn delete_build_file(
         return Err("GitHub токен не задан.".to_string());
     }
 
+    // First try to delete a matching release asset (used for files >100 MB).
+    // We don't fail if there isn't one — fall through to Contents API.
+    if let Ok(release) = get_or_create_storage_release(&client, token, repo).await {
+        let asset_name = asset_name_for_path(&file_path);
+        if let Some(asset) = release.assets.iter().find(|a| a.name == asset_name) {
+            launcher_log(&format!(
+                "[builds] delete: matching release asset found id={}, deleting",
+                asset.id
+            ));
+            delete_release_asset(&client, token, repo, asset.id).await?;
+            // If sha is empty, we're done (file was release-only).
+            if sha.trim().is_empty() {
+                return Ok(());
+            }
+        }
+    }
+
     let api = file_api(repo, &file_path);
     let payload = serde_json::json!({
         "message": format!("chore: delete {} via launcher admin panel", file_path),
@@ -732,6 +955,10 @@ pub async fn delete_build_file(
 
     if status == reqwest::StatusCode::UNAUTHORIZED {
         return Err("Токен GitHub недействителен. Нужно разрешение Contents: Read and write".to_string());
+    }
+    // 404 is acceptable: the file is gone (release-only or already deleted)
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Ok(());
     }
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -808,27 +1035,18 @@ pub async fn upload_build_from_zip(
     let client = github_upload_client()?;
     let mut entries: Vec<BuildFileEntry> = Vec::new();
 
-    for (i, (rel_path, content)) in files_to_upload.iter().enumerate() {
+    for (i, (rel_path, content)) in files_to_upload.into_iter().enumerate() {
         if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
             if let Some(ref mut prog) = *pl { prog.done = i; prog.current = rel_path.clone(); }
         }
         let size = content.len() as u64;
-        let mut h = Sha1::new(); h.update(content);
+        let mut h = Sha1::new(); h.update(&content);
         let sha1 = format!("{:x}", h.finalize());
-        let api = file_api(repo, rel_path);
-        let existing = get_github_file(&client, &token, &api).await.ok().flatten();
-        let git_sha = git_blob_sha1(content);
-        if let Some(ref ex) = existing {
-            if ex.sha == git_sha {
-                let name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
-                entries.push(BuildFileEntry { name, path: rel_path.clone(), url: raw_url(repo, rel_path), sha1, size, enabled: true });
-                continue;
-            }
-        }
-        match put_github_file_with_client(&client, &token, &api, &format!("build: upload {} from ZIP", rel_path), content, existing.map(|f| f.sha)).await {
-            Ok(()) => {
-                let name = rel_path.rsplit('/').next().unwrap_or(rel_path).to_string();
-                entries.push(BuildFileEntry { name, path: rel_path.clone(), url: raw_url(repo, rel_path), sha1, size, enabled: true });
+
+        match upload_file_smart(&client, &token, repo, &rel_path, content).await {
+            Ok(url) => {
+                let name = rel_path.rsplit('/').next().unwrap_or(&rel_path).to_string();
+                entries.push(BuildFileEntry { name, path: rel_path.clone(), url, sha1, size, enabled: true });
             }
             Err(e) => {
                 if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
