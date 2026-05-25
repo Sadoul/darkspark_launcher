@@ -211,10 +211,23 @@ fn file_sha1(path: &PathBuf) -> Result<String, String> {
 }
 
 async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> Result<(), String> {
+    download_file_inner(client, url, path, false).await
+}
+
+async fn download_file_force(client: &reqwest::Client, url: &str, path: &PathBuf) -> Result<(), String> {
+    download_file_inner(client, url, path, true).await
+}
+
+async fn download_file_inner(
+    client: &reqwest::Client,
+    url: &str,
+    path: &PathBuf,
+    force: bool,
+) -> Result<(), String> {
     if LAUNCH_CANCELLED.load(Ordering::SeqCst) {
         return Err("Запуск Minecraft отменён".to_string());
     }
-    if path.exists() {
+    if path.exists() && !force {
         log(&format!("[download] Already exists, skipping: {}", path.display()));
         return Ok(());
     }
@@ -268,7 +281,27 @@ async fn fetch_build_manifest(client: &reqwest::Client, repo: &str) -> Result<(B
     Ok((manifest, raw))
 }
 
+#[allow(dead_code)]
 const SYNC_TRACKED_DIRS: &[&str] = &["mods", "config", "resourcepacks", "shaderpacks", "schematics"];
+
+/// Files inside these directories are treated as USER-OWNED:
+/// downloaded only the first time (when missing), never overwritten or
+/// cleaned up afterwards. This keeps player keybinds, video settings,
+/// resource pack selections, and per-mod configuration alive across launches.
+const USER_OWNED_DIRS: &[&str] = &["config", "resourcepacks", "shaderpacks", "schematics"];
+
+/// Specific top-level files that the player edits and we must not overwrite
+/// on subsequent launches.
+const USER_OWNED_ROOT_FILES: &[&str] = &["options.txt"];
+
+fn is_user_owned(rel_path: &str) -> bool {
+    if USER_OWNED_ROOT_FILES.iter().any(|f| rel_path == *f) {
+        return true;
+    }
+    USER_OWNED_DIRS.iter().any(|dir| {
+        rel_path.starts_with(&format!("{dir}/"))
+    })
+}
 
 fn modpack_meta_path(modpack_name: &str) -> PathBuf {
     dirs::data_dir()
@@ -322,36 +355,58 @@ async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: 
     let total = manifest.mods.len() as f64;
     set_progress("build", 0.0, total, "Синхронизация сборки...");
 
-    // Build set of enabled paths (forward slashes) for cleanup
+    // Build set of enabled paths (forward slashes). Used both for "what to
+    // download" (mods) and for cleanup of stale mods/.
     let enabled_paths: HashSet<String> = manifest.mods.iter()
         .filter(|m| m.enabled)
         .map(|m| m.path.clone())
         .collect();
 
-    // Download missing or changed files
+    // Download missing or changed files.
+    //
+    // Strategy:
+    //   * mods/* — full sync. Sha mismatch ⇒ redownload (mods MUST match
+    //     the manifest, otherwise the game crashes).
+    //   * config/, resourcepacks/, shaderpacks/, schematics/, options.txt —
+    //     "init only". Downloaded once when the file is missing locally.
+    //     Player edits are preserved on subsequent launches.
     for (i, entry) in manifest.mods.iter().filter(|m| m.enabled).enumerate() {
         check_launch_cancelled()?;
         let path = mc_dir.join(&entry.path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).ok();
         }
+
+        let user_owned = is_user_owned(&entry.path);
         let needs_download = if path.exists() {
-            file_sha1(&path).map(|sha| sha != entry.sha1).unwrap_or(true)
+            if user_owned {
+                // Never overwrite user-owned files that already exist.
+                false
+            } else {
+                file_sha1(&path).map(|sha| sha != entry.sha1).unwrap_or(true)
+            }
         } else {
+            // Always download when missing (first-time install of options.txt etc.)
             true
         };
+
         if needs_download {
             set_progress("build", i as f64, total, &format!("Скачивание {}", entry.name));
-            download_file(client, &entry.url, &path).await?;
+            // Force=true is fine here: we only get here when the file is
+            // missing OR (for non-user-owned) sha mismatched. force just
+            // bypasses the "already exists" early return.
+            download_file_force(client, &entry.url, &path).await?;
+        } else if user_owned {
+            log(&format!("[build] Keeping user-owned file: {}", entry.path));
         }
     }
 
-    // Remove stale files from all tracked directories
-    for dir_name in SYNC_TRACKED_DIRS {
-        let dir = mc_dir.join(dir_name);
-        if dir.is_dir() {
-            cleanup_stale_in_dir(&dir, mc_dir, &enabled_paths);
-        }
+    // Stale-file cleanup runs ONLY for mods/. Config files, resource packs,
+    // shader packs and schematics may be added by the player and must not
+    // be silently deleted just because they aren't in the manifest.
+    let mods_dir = mc_dir.join("mods");
+    if mods_dir.is_dir() {
+        cleanup_stale_in_dir(&mods_dir, mc_dir, &enabled_paths);
     }
 
     // Cache manifest hash and discord_url for update-check and UI
