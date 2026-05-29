@@ -33,6 +33,7 @@ interface JavaInfo {
   path: string;
   version: string;
   found: boolean;
+  bits?: number;
 }
 
 interface UpdateInfo {
@@ -144,7 +145,11 @@ export default function SettingsPanel({
       const info = await invoke<JavaInfo>("find_java");
       if (info.found) {
         onJavaChange(info.path, info.version);
-        setJavaStatus("Найдено: " + info.version);
+        if (info.bits === 32) {
+          setJavaStatus(`Найдена 32-битная Java (${info.version}). Она не поддерживает много памяти — нажмите «Скачать Java 17», чтобы поставить 64-битную.`);
+        } else {
+          setJavaStatus(`Найдено: ${info.version}${info.bits ? ` (${info.bits}-bit)` : ""}`);
+        }
       } else {
         setJavaStatus("Java не найдена");
       }

@@ -670,6 +670,26 @@ fn javaw_path(java_path: &str) -> String {
     java_path.to_string()
 }
 
+/// Returns a safe `-Xmx` value (in MB) for the given Java executable.
+/// 32-bit JVMs can't address large heaps, so we cap them at 1024 MB.
+/// For 64-bit (or undetectable) Java we return the requested value unchanged.
+fn clamp_memory_for_java(java_path: &str, requested_mb: u32) -> u32 {
+    // Only bother probing when the request is large enough that a 32-bit JVM
+    // would reject it. A 32-bit JVM typically tops out around 1.5 GB on
+    // Windows; anything at/under 1024M is universally safe.
+    if requested_mb <= 1024 {
+        return requested_mb;
+    }
+
+    match super::java::detect_java_bits(java_path) {
+        Some(32) => {
+            log("[launch] Detected 32-bit Java — capping heap at 1024M to avoid JVM startup failure");
+            1024
+        }
+        _ => requested_mb,
+    }
+}
+
 
 async fn run_modded_installer(
     client: &reqwest::Client,
@@ -1303,7 +1323,19 @@ pub async fn launch_game(
 
     let natives_dir = version_dir.join("natives");
 
-    let mut jvm_arg_list: Vec<String> = vec![format!("-Xmx{}M", max_memory)];
+    // Guard against impossible heap sizes. A 32-bit JVM cannot address more
+    // than ~1.5 GB; passing -Xmx16384M makes it fail to start with
+    // "Invalid maximum heap size". Detect the bitness of the selected Java
+    // and clamp the requested memory accordingly.
+    let effective_memory = clamp_memory_for_java(&java_path, max_memory);
+    if effective_memory != max_memory {
+        log(&format!(
+            "[launch] Requested {}M exceeds what this Java can address; clamped to {}M (likely a 32-bit Java)",
+            max_memory, effective_memory
+        ));
+    }
+
+    let mut jvm_arg_list: Vec<String> = vec![format!("-Xmx{}M", effective_memory)];
 
     let gpu = gpu_mode.as_deref().unwrap_or("auto");
     if gpu == "discrete" {

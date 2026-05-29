@@ -26,6 +26,7 @@ interface JavaInfo {
   path: string;
   version: string;
   found: boolean;
+  bits?: number;
 }
 
 interface LaunchProgress {

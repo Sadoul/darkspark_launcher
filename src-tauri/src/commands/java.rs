@@ -8,45 +8,90 @@ pub struct JavaInfo {
     pub path: String,
     pub version: String,
     pub found: bool,
+    #[serde(default)]
+    pub bits: u32,
 }
 
-#[tauri::command]
-pub async fn find_java() -> Result<JavaInfo, String> {
+struct JavaCandidate {
+    path: String,
+    version: String,
+    bits: u32,
+}
 
-    let bundled = get_bundled_java_path();
-    if bundled.exists() {
-        if let Some(version) = get_java_version(&bundled) {
-            return Ok(JavaInfo {
-                path: bundled.to_string_lossy().to_string(),
-                version,
-                found: true,
-            });
-        }
+fn probe_java(path: &PathBuf) -> Option<JavaCandidate> {
+    let version = get_java_version(path)?;
+    let bits = detect_java_bits(&path.to_string_lossy()).unwrap_or(0);
+    Some(JavaCandidate {
+        path: path.to_string_lossy().to_string(),
+        version,
+        bits,
+    })
+}
+
+/// Determines whether a Java executable is 32- or 64-bit by reading the
+/// `sun.arch.data.model` property. Returns Some(64), Some(32), or None if
+/// it can't be determined.
+pub fn detect_java_bits(java_path: &str) -> Option<u32> {
+    let mut cmd = Command::new(java_path);
+    cmd.args(["-XshowSettings:properties", "-version"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    let output = cmd.output().ok()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-
-    if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        let java_path = PathBuf::from(&java_home).join("bin").join("java.exe");
-        if java_path.exists() {
-            if let Some(version) = get_java_version(&java_path) {
-                return Ok(JavaInfo {
-                    path: java_path.to_string_lossy().to_string(),
-                    version,
-                    found: true,
-                });
+    for line in text.lines() {
+        let l = line.trim();
+        if l.starts_with("sun.arch.data.model") {
+            if l.contains("64") {
+                return Some(64);
+            }
+            if l.contains("32") {
+                return Some(32);
             }
         }
     }
 
+    // Fallback: the "-version" banner mentions "64-Bit" on 64-bit VMs.
+    if text.contains("64-Bit") {
+        return Some(64);
+    }
+    None
+}
 
-    if let Some(version) = get_java_version(&PathBuf::from("java")) {
-        return Ok(JavaInfo {
-            path: "java".to_string(),
-            version,
-            found: true,
-        });
+#[tauri::command]
+pub async fn find_java() -> Result<JavaInfo, String> {
+    // Collect all discoverable Java executables, then prefer a 64-bit one.
+    // A 32-bit JVM cannot allocate large heaps (e.g. -Xmx16384M) and will
+    // fail to start with "Invalid maximum heap size".
+    let mut candidates: Vec<JavaCandidate> = Vec::new();
+
+    let bundled = get_bundled_java_path();
+    if bundled.exists() {
+        if let Some(c) = probe_java(&bundled) {
+            candidates.push(c);
+        }
     }
 
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        let java_path = PathBuf::from(&java_home).join("bin").join("java.exe");
+        if java_path.exists() {
+            if let Some(c) = probe_java(&java_path) {
+                candidates.push(c);
+            }
+        }
+    }
+
+    if let Some(c) = probe_java(&PathBuf::from("java")) {
+        candidates.push(c);
+    }
 
     let common_paths = vec![
         "C:\\Program Files\\Java",
@@ -62,12 +107,8 @@ pub async fn find_java() -> Result<JavaInfo, String> {
                 for entry in entries.flatten() {
                     let java_path = entry.path().join("bin").join("java.exe");
                     if java_path.exists() {
-                        if let Some(version) = get_java_version(&java_path) {
-                            return Ok(JavaInfo {
-                                path: java_path.to_string_lossy().to_string(),
-                                version,
-                                found: true,
-                            });
+                        if let Some(c) = probe_java(&java_path) {
+                            candidates.push(c);
                         }
                     }
                 }
@@ -75,10 +116,28 @@ pub async fn find_java() -> Result<JavaInfo, String> {
         }
     }
 
+    if candidates.is_empty() {
+        return Ok(JavaInfo {
+            path: String::new(),
+            version: String::new(),
+            found: false,
+            bits: 0,
+        });
+    }
+
+    // Prefer 64-bit; among equal bit-ness keep discovery order
+    // (bundled > JAVA_HOME > PATH > common installs).
+    let chosen = candidates
+        .iter()
+        .find(|c| c.bits == 64)
+        .or_else(|| candidates.first())
+        .unwrap();
+
     Ok(JavaInfo {
-        path: String::new(),
-        version: String::new(),
-        found: false,
+        path: chosen.path.clone(),
+        version: chosen.version.clone(),
+        found: true,
+        bits: chosen.bits,
     })
 }
 
@@ -194,10 +253,12 @@ pub async fn download_java() -> Result<JavaInfo, String> {
 
     let java_path = java_base_dir.join("bin").join("java.exe");
     let version = get_java_version(&java_path).unwrap_or_else(|| "17".to_string());
+    let bits = detect_java_bits(&java_path.to_string_lossy()).unwrap_or(64);
 
     Ok(JavaInfo {
         path: java_path.to_string_lossy().to_string(),
         version,
         found: true,
+        bits,
     })
 }
