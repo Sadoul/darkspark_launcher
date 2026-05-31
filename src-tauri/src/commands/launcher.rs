@@ -211,11 +211,25 @@ fn file_sha1(path: &PathBuf) -> Result<String, String> {
 }
 
 async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> Result<(), String> {
-    download_file_inner(client, url, path, false).await
+    download_file_inner(client, url, path, false, None).await
 }
 
+#[allow(dead_code)]
 async fn download_file_force(client: &reqwest::Client, url: &str, path: &PathBuf) -> Result<(), String> {
-    download_file_inner(client, url, path, true).await
+    download_file_inner(client, url, path, true, None).await
+}
+
+/// Download with live byte-level progress. `progress_label` is what gets
+/// shown in the UI as the current operation (e.g. "Скачивание big-mod.jar").
+/// Used for big files (release assets) so the player sees that work is
+/// happening and doesn't give up and cancel.
+async fn download_file_with_progress(
+    client: &reqwest::Client,
+    url: &str,
+    path: &PathBuf,
+    progress_label: &str,
+) -> Result<(), String> {
+    download_file_inner(client, url, path, true, Some(progress_label.to_string())).await
 }
 
 async fn download_file_inner(
@@ -223,6 +237,7 @@ async fn download_file_inner(
     url: &str,
     path: &PathBuf,
     force: bool,
+    progress_label: Option<String>,
 ) -> Result<(), String> {
     if LAUNCH_CANCELLED.load(Ordering::SeqCst) {
         return Err("Запуск Minecraft отменён".to_string());
@@ -247,17 +262,82 @@ async fn download_file_inner(
         return Err(format!("[download] HTTP {} for URL: {}", response.status(), url));
     }
 
-    if LAUNCH_CANCELLED.load(Ordering::SeqCst) {
-        return Err("Запуск Minecraft отменён".to_string());
+    let total = response.content_length().unwrap_or(0);
+
+    // Stream to disk so very large files (e.g. 250 MB release assets) don't
+    // time out on a single .bytes() call and don't sit entirely in RAM.
+    let tmp_path = path.with_extension(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!("{e}.part"))
+            .unwrap_or_else(|| "part".to_string()),
+    );
+    let _ = fs::remove_file(&tmp_path);
+    let mut file = fs::File::create(&tmp_path)
+        .map_err(|e| format!("[download] Cannot create temp file {}: {}", tmp_path.display(), e))?;
+
+    use futures_util::StreamExt;
+    let mut stream = response.bytes_stream();
+    let mut downloaded: u64 = 0;
+    let mut last_progress_log: u64 = 0;
+
+    while let Some(chunk) = stream.next().await {
+        if LAUNCH_CANCELLED.load(Ordering::SeqCst) {
+            drop(file);
+            let _ = fs::remove_file(&tmp_path);
+            return Err("Запуск Minecraft отменён".to_string());
+        }
+        let chunk = chunk.map_err(|e| format!("[download] Stream error for {}: {}", url, e))?;
+        std::io::Write::write_all(&mut file, &chunk)
+            .map_err(|e| format!("[download] Write failed for {}: {}", tmp_path.display(), e))?;
+        downloaded += chunk.len() as u64;
+
+        // Push progress to UI for big files so the player sees activity.
+        if let Some(ref label) = progress_label {
+            let mb_done = downloaded as f64 / 1_048_576.0;
+            let msg = if total > 0 {
+                let mb_total = total as f64 / 1_048_576.0;
+                let pct = (downloaded as f64 / total as f64 * 100.0).min(100.0);
+                format!("{label} — {:.1}/{:.1} МБ ({:.0}%)", mb_done, mb_total, pct)
+            } else {
+                format!("{label} — {:.1} МБ", mb_done)
+            };
+            // Cheap in-progress update; uses existing build stage so the UI
+            // keeps showing the same bar.
+            if let Ok(mut p) = LAUNCH_PROGRESS.lock() {
+                if let Some(ref mut prog) = *p {
+                    prog.message = msg;
+                }
+            }
+        }
+
+        // Log every 16 MB so launcher.log shows real progress for slow files.
+        if downloaded.saturating_sub(last_progress_log) >= 16 * 1024 * 1024 {
+            last_progress_log = downloaded;
+            log(&format!(
+                "[download] {} progress: {} / {} bytes",
+                path.display(),
+                downloaded,
+                total
+            ));
+        }
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("[download] Read body failed for {}: {}", url, e))?;
+    drop(file);
+    fs::rename(&tmp_path, path).map_err(|e| {
+        format!(
+            "[download] Cannot rename {} -> {}: {}",
+            tmp_path.display(),
+            path.display(),
+            e
+        )
+    })?;
 
-    log(&format!("[download] Saving {} bytes to {}", bytes.len(), path.display()));
-    fs::write(path, &bytes).map_err(|e| format!("[download] Write failed for {}: {}", path.display(), e))?;
+    log(&format!(
+        "[download] Saved {} bytes to {}",
+        downloaded,
+        path.display()
+    ));
 
     Ok(())
 }
@@ -392,7 +472,11 @@ async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: 
 
         if needs_download {
             set_progress("build", i as f64, total, &format!("Скачивание {}", entry.name));
-            download_file_force(client, &entry.url, &path).await?;
+            // Show byte-level progress so the player sees movement on big
+            // files (250 MB release assets) and doesn't think the launcher
+            // is frozen and cancel the launch.
+            let label = format!("Скачивание {}", entry.name);
+            download_file_with_progress(client, &entry.url, &path, &label).await?;
             downloaded += 1;
         } else if user_owned {
             kept += 1;
@@ -426,7 +510,10 @@ pub async fn sync_modpack_files(modpack_name: String, game_dir: Option<String>) 
     LAUNCH_CANCELLED.store(false, Ordering::SeqCst);
     let client = reqwest::Client::builder()
         .user_agent("DanganVerseLauncher/2.10")
-        .timeout(std::time::Duration::from_secs(120))
+        // Connect quickly or fail fast, but don't time-cap a slow large
+        // download (250 MB release assets can take many minutes on a slow link).
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .pool_idle_timeout(None)
         .build()
         .map_err(|e| e.to_string())?;
     let mc_dir = game_dir.map(PathBuf::from).unwrap_or_else(get_minecraft_dir);
@@ -1029,7 +1116,11 @@ pub async fn launch_game(
 
     let client = reqwest::Client::builder()
         .user_agent("DanganVerseLauncher/2.10")
-        .timeout(std::time::Duration::from_secs(120))
+        // No global request timeout — large release assets (200+ MB) can take
+        // minutes on a slow connection. Keep a short connect timeout so dead
+        // hosts fail fast.
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .pool_idle_timeout(None)
         .build()
         .map_err(|e| e.to_string())?;
 

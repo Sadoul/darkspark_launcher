@@ -69,7 +69,7 @@ Write-Host "[4/4] Публикация релиза $TAG на GitHub..." -Foregr
 $staged = git status --porcelain
 if ($staged) {
     git add src-tauri/icons/ src-tauri/src/ src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/ stub-rs/ release.ps1
-    git commit -m "ZIP распаковывается, файлы доходят до игроков"
+    git commit -m "Прогресс и стрим для больших модов"
 }
 
 git tag $TAG
