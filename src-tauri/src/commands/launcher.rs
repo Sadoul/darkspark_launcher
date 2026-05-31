@@ -284,23 +284,20 @@ async fn fetch_build_manifest(client: &reqwest::Client, repo: &str) -> Result<(B
 #[allow(dead_code)]
 const SYNC_TRACKED_DIRS: &[&str] = &["mods", "config", "resourcepacks", "shaderpacks", "schematics"];
 
-/// Files inside these directories are treated as USER-OWNED:
-/// downloaded only the first time (when missing), never overwritten or
-/// cleaned up afterwards. This keeps player keybinds, video settings,
-/// resource pack selections, and per-mod configuration alive across launches.
-const USER_OWNED_DIRS: &[&str] = &["config", "resourcepacks", "shaderpacks", "schematics"];
+/// The ONLY directory that is strictly synchronised with the manifest:
+/// files are (re)downloaded on sha mismatch and stale files are removed.
+/// Mods must match the manifest exactly or the game crashes.
+const STRICT_SYNC_PREFIX: &str = "mods/";
 
-/// Specific top-level files that the player edits and we must not overwrite
-/// on subsequent launches.
-const USER_OWNED_ROOT_FILES: &[&str] = &["options.txt"];
-
+/// Returns true if a manifest path is "init only" — i.e. user-owned.
+/// Everything that is NOT under `mods/` is considered user-owned:
+/// options.txt (keybinds, video settings), config/ (per-mod settings incl.
+/// EmoteCraft), resourcepacks/, shaderpacks/, schematics/, emotes/, saves/,
+/// screenshots/, etc. These are downloaded once when missing and then never
+/// overwritten or deleted, so player customisation survives every launch.
 fn is_user_owned(rel_path: &str) -> bool {
-    if USER_OWNED_ROOT_FILES.iter().any(|f| rel_path == *f) {
-        return true;
-    }
-    USER_OWNED_DIRS.iter().any(|dir| {
-        rel_path.starts_with(&format!("{dir}/"))
-    })
+    let normalized = rel_path.replace('\\', "/");
+    !normalized.starts_with(STRICT_SYNC_PREFIX)
 }
 
 fn modpack_meta_path(modpack_name: &str) -> PathBuf {
@@ -367,9 +364,12 @@ async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: 
     // Strategy:
     //   * mods/* — full sync. Sha mismatch ⇒ redownload (mods MUST match
     //     the manifest, otherwise the game crashes).
-    //   * config/, resourcepacks/, shaderpacks/, schematics/, options.txt —
-    //     "init only". Downloaded once when the file is missing locally.
-    //     Player edits are preserved on subsequent launches.
+    //   * everything else (options.txt, config/, resourcepacks/, shaderpacks/,
+    //     schematics/, emotes/, etc.) — "init only". Downloaded once when the
+    //     file is missing locally, then never overwritten. Player edits are
+    //     preserved on every subsequent launch.
+    let mut kept = 0u32;
+    let mut downloaded = 0u32;
     for (i, entry) in manifest.mods.iter().filter(|m| m.enabled).enumerate() {
         check_launch_cancelled()?;
         let path = mc_dir.join(&entry.path);
@@ -386,24 +386,25 @@ async fn sync_build_files(client: &reqwest::Client, modpack_name: &str, mc_dir: 
                 file_sha1(&path).map(|sha| sha != entry.sha1).unwrap_or(true)
             }
         } else {
-            // Always download when missing (first-time install of options.txt etc.)
+            // Always download when missing (first-time install).
             true
         };
 
         if needs_download {
             set_progress("build", i as f64, total, &format!("Скачивание {}", entry.name));
-            // Force=true is fine here: we only get here when the file is
-            // missing OR (for non-user-owned) sha mismatched. force just
-            // bypasses the "already exists" early return.
             download_file_force(client, &entry.url, &path).await?;
+            downloaded += 1;
         } else if user_owned {
+            kept += 1;
             log(&format!("[build] Keeping user-owned file: {}", entry.path));
         }
     }
+    log(&format!("[build] Sync summary: {} downloaded, {} user-owned files kept", downloaded, kept));
 
-    // Stale-file cleanup runs ONLY for mods/. Config files, resource packs,
-    // shader packs and schematics may be added by the player and must not
-    // be silently deleted just because they aren't in the manifest.
+    // Stale-file cleanup runs ONLY for mods/. Anything else (config, options,
+    // resource/shader packs, emotes, saves, screenshots) may be created or
+    // customised by the player and must NEVER be deleted just because it is
+    // absent from the manifest.
     let mods_dir = mc_dir.join("mods");
     if mods_dir.is_dir() {
         cleanup_stale_in_dir(&mods_dir, mc_dir, &enabled_paths);
