@@ -584,8 +584,15 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
       }, 800);
       try {
         const entries = await invoke<BuildFileEntry[]>("upload_build_from_zip", { build: activeBuild, githubToken, zipPath: selected });
-        const name = entries[0]?.name ?? "архив";
-        notify(`ZIP «${name}» загружен в корень сборки (без распаковки).`);
+        if (entries.length > 0) {
+          setManifest(prev => {
+            if (!prev) return prev;
+            const newPaths = new Set(entries.map(m => m.path));
+            const kept = prev.mods.filter(m => !newPaths.has(m.path));
+            return { ...prev, mods: [...kept, ...entries] };
+          });
+        }
+        notify(`ZIP распакован: ${entries.length} файлов загружено. Нажмите «Commit», чтобы сохранить manifest.`);
         await loadRepoTree();
       } catch (e) { notify(`Ошибка загрузки ZIP: ${String(e)}`); }
       finally {
@@ -730,7 +737,7 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
                   <button className="settings-btn compact" type="button" onClick={chooseModFiles} disabled={uploadingMod || uploadingBuild} title=".jar мод или .zip (ресурспак/шейдер)">
                     .jar / .zip файл
                   </button>
-                  <button className="settings-btn compact" type="button" onClick={chooseAndUploadZip} disabled={uploadingMod || uploadingBuild} title="ZIP-архив загружается целиком (без распаковки) в корень сборки, рядом с mods/, config/ и т.д. Внутри может быть любая структура папок.">
+                  <button className="settings-btn compact" type="button" onClick={chooseAndUploadZip} disabled={uploadingMod || uploadingBuild} title="ZIP распаковывается: его файлы (mods/, config/, resourcepacks/, shaderpacks/, emotes/, options.txt и т.д.) коммитятся на GitHub по своим путям. Папки сохраняются.">
                     {uploadingBuild ? "Загрузка..." : "📦 ZIP-сборка"}
                   </button>
                   <button className="settings-btn compact" type="button" onClick={uploadModpackFolder} disabled={uploadingMod || uploadingBuild} title="Папка со структурой сборки">

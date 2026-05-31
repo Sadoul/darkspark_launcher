@@ -991,71 +991,105 @@ pub async fn upload_build_from_zip(
         return Err(format!("Файл не найден: {zip_path}"));
     }
 
-    // The ZIP archive is uploaded AS-IS (not extracted) into the build root —
-    // the same level where mods/, config/, resourcepacks/ etc. live. The
-    // archive may itself contain many folders (mods, config, shaderpacks…),
-    // but we never unpack it here: the whole .zip lands as a single file.
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.to_string())
-        .ok_or_else(|| "Некорректное имя ZIP-файла".to_string())?;
+    // The ZIP is EXTRACTED and every inner file is committed to GitHub at its
+    // own path, preserving the archive's folder structure (emotes/,
+    // shaderpacks/, resourcepacks/, config/, mods/, options.txt, …). Folders
+    // themselves are kept as-is. Large files (>95 MB) transparently go to the
+    // storage release. The init-only protection on the launcher side means
+    // existing players keep their options.txt / packs / emotes, while fresh
+    // installs receive everything.
+    let zip_bytes = fs::read(&path).map_err(|e| format!("Не удалось прочитать ZIP: {e}"))?;
+    let cursor = std::io::Cursor::new(&zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
 
-    let bytes = fs::read(&path).map_err(|e| format!("Не удалось прочитать ZIP: {e}"))?;
-    if bytes.is_empty() {
-        return Err("ZIP файл пуст".to_string());
+    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
+        if file.is_dir() { continue; }
+        let name = file.name().replace('\\', "/").to_string();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
+        zip_entries.push((name, content));
     }
 
-    let size = bytes.len() as u64;
-    let mut h = Sha1::new();
-    h.update(&bytes);
-    let sha1 = format!("{:x}", h.finalize());
+    if zip_entries.is_empty() {
+        return Err("ZIP файл пуст или содержит только папки".to_string());
+    }
 
-    // Upload to repo ROOT under the original file name (no sub-path prefix).
-    let remote_path = file_name.clone();
+    // If the archive wraps everything in a single top-level folder
+    // (e.g. you zipped the `danganverse` folder itself → danganverse/mods/…),
+    // strip that wrapper so paths become mods/…, config/… etc. If the archive
+    // already has multiple top-level entries (mods/, emotes/, options.txt),
+    // nothing is stripped — folders are left untouched.
+    let root_prefix: String = {
+        let first = &zip_entries[0].0;
+        if let Some(pos) = first.find('/') {
+            let candidate = format!("{}/", &first[..pos]);
+            if zip_entries.iter().all(|(p, _)| p.starts_with(&candidate)) { candidate } else { String::new() }
+        } else { String::new() }
+    };
+
+    let files_to_upload: Vec<(String, Vec<u8>)> = zip_entries
+        .into_iter()
+        .map(|(p, c)| {
+            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) {
+                p[root_prefix.len()..].to_string()
+            } else {
+                p
+            };
+            (stripped, c)
+        })
+        .filter(|(p, _)| !p.is_empty() && !p.starts_with('.') && !p.contains("__MACOSX"))
+        .collect();
+
+    let total = files_to_upload.len();
+    if total == 0 {
+        return Err("В ZIP нет подходящих файлов для загрузки".to_string());
+    }
 
     if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
         *pl = Some(UploadProgress {
             done: 0,
-            total: 1,
-            current: format!("Загрузка архива {file_name}..."),
+            total,
+            current: "Распаковка ZIP и загрузка файлов...".to_string(),
             errors: vec![],
             finished: false,
         });
     }
 
     let client = github_upload_client()?;
-    let result = upload_file_smart(&client, &token, repo, &remote_path, bytes).await;
+    let mut entries: Vec<BuildFileEntry> = Vec::new();
 
-    let entries: Vec<BuildFileEntry> = match result {
-        Ok(url) => {
-            if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
-                if let Some(ref mut prog) = *pl {
-                    prog.done = 1;
-                    prog.current = format!("Готово! Архив {file_name} загружен в корень сборки");
-                    prog.finished = true;
+    for (i, (rel_path, content)) in files_to_upload.into_iter().enumerate() {
+        if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+            if let Some(ref mut prog) = *pl { prog.done = i; prog.current = rel_path.clone(); }
+        }
+        let size = content.len() as u64;
+        let mut h = Sha1::new();
+        h.update(&content);
+        let sha1 = format!("{:x}", h.finalize());
+
+        match upload_file_smart(&client, &token, repo, &rel_path, content).await {
+            Ok(url) => {
+                let name = rel_path.rsplit('/').next().unwrap_or(&rel_path).to_string();
+                entries.push(BuildFileEntry { name, path: rel_path.clone(), url, sha1, size, enabled: true });
+            }
+            Err(e) => {
+                if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+                    if let Some(ref mut prog) = *pl { prog.errors.push(format!("{rel_path}: {e}")); }
                 }
             }
-            launcher_log(&format!("[builds] ZIP uploaded as-is to root: {remote_path}"));
-            vec![BuildFileEntry {
-                name: file_name.clone(),
-                path: remote_path.clone(),
-                url,
-                sha1,
-                size,
-                enabled: true,
-            }]
         }
-        Err(e) => {
-            if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
-                if let Some(ref mut prog) = *pl {
-                    prog.errors.push(format!("{file_name}: {e}"));
-                    prog.finished = true;
-                }
-            }
-            return Err(format!("Не удалось загрузить ZIP: {e}"));
-        }
-    };
+    }
 
+    if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+        if let Some(ref mut prog) = *pl {
+            prog.done = total;
+            prog.current = format!("Готово! Загружено файлов: {} из {total}", entries.len());
+            prog.finished = true;
+        }
+    }
+
+    launcher_log(&format!("[builds] ZIP extracted: {} files uploaded to {repo}", entries.len()));
     Ok(entries)
 }
