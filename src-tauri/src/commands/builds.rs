@@ -759,6 +759,96 @@ const BUILD_CATEGORY_DIRS: &[&str] = &[
     "mods", "config", "resourcepacks", "shaderpacks", "schematics", "emotes",
 ];
 
+// Парсит ZIP в список (path, content). Особенности:
+//   • Пустые директории сохраняются как `dir/.gitkeep` (иначе GitHub Contents
+//     API не создаёт пустых папок — пустой emotes/ просто пропадёт).
+//   • Если ВСЕ entries сидят под одной обёрткой (zip-from-finder с папкой
+//     `MyPack/`), эта обёртка срезается. НО если обёртка — это категорийная
+//     папка (`emotes`, `mods`, `resourcepacks`...), она НЕ срезается, иначе
+//     `emotes/foo.png` в корневом zip распакуется в корень сборки.
+//   • Фильтрует мусор: `__MACOSX`, `.DS_Store`, пустые пути.
+fn parse_zip_entries(zip_bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let cursor = std::io::Cursor::new(zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
+
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut dirs: Vec<String> = Vec::new();
+
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
+        let name = file.name().replace('\\', "/").to_string();
+        if file.is_dir() {
+            let trimmed = name.trim_end_matches('/').to_string();
+            if !trimmed.is_empty() {
+                dirs.push(trimmed);
+            }
+        } else {
+            let mut content = Vec::new();
+            file.read_to_end(&mut content)
+                .map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
+            files.push((name, content));
+        }
+    }
+
+    // .gitkeep для пустых директорий (без файлов внутри).
+    for dir in &dirs {
+        let prefix = format!("{}/", dir);
+        if !files.iter().any(|(p, _)| p.starts_with(&prefix)) {
+            files.push((format!("{}/.gitkeep", dir), Vec::new()));
+        }
+    }
+
+    if files.is_empty() {
+        return Err("ZIP файл пуст".to_string());
+    }
+
+    // Detect wrapper folder, но не срезай категорийные папки.
+    let root_prefix: String = {
+        let first = &files[0].0;
+        if let Some(pos) = first.find('/') {
+            let candidate_name = &first[..pos];
+            if BUILD_CATEGORY_DIRS.contains(&candidate_name.to_lowercase().as_str()) {
+                // Это категорийная папка (emotes/, mods/, ...) — оставляем как есть.
+                String::new()
+            } else {
+                let candidate = format!("{}/", candidate_name);
+                if files.iter().all(|(p, _)| p.starts_with(&candidate)) {
+                    candidate
+                } else {
+                    String::new()
+                }
+            }
+        } else {
+            String::new()
+        }
+    };
+
+    let result: Vec<(String, Vec<u8>)> = files
+        .into_iter()
+        .map(|(p, c)| {
+            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) {
+                p[root_prefix.len()..].to_string()
+            } else {
+                p
+            };
+            (stripped, c)
+        })
+        .filter(|(p, _)| {
+            !p.is_empty()
+                && !p.starts_with("__MACOSX")
+                && !p.contains("/__MACOSX/")
+                && !p.ends_with("/.DS_Store")
+                && p != ".DS_Store"
+        })
+        .collect();
+
+    if result.is_empty() {
+        return Err("В ZIP нет подходящих файлов для загрузки".to_string());
+    }
+    Ok(result)
+}
+
 fn detect_build_archive(archive: &mut zip::ZipArchive<std::io::Cursor<&Vec<u8>>>) -> bool {
     let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
     for i in 0..archive.len() {
@@ -877,47 +967,8 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
 }
 
 async fn upload_build_zip_contents(repo: &str, token: &str, zip_bytes: Vec<u8>) -> Result<Vec<BuildFileEntry>, String> {
-    let cursor = std::io::Cursor::new(&zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
-
-    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
-        if file.is_dir() { continue; }
-        let name = file.name().replace('\\', "/").to_string();
-        let mut content = Vec::new();
-        file.read_to_end(&mut content).map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
-        zip_entries.push((name, content));
-    }
-
-    if zip_entries.is_empty() {
-        return Err("ZIP файл пуст или содержит только папки".to_string());
-    }
-
-    // Strip a single wrapper folder if every entry shares it.
-    let root_prefix: String = {
-        let first = &zip_entries[0].0;
-        if let Some(pos) = first.find('/') {
-            let candidate = format!("{}/", &first[..pos]);
-            if zip_entries.iter().all(|(p, _)| p.starts_with(&candidate)) { candidate } else { String::new() }
-        } else { String::new() }
-    };
-
-    let files_to_upload: Vec<(String, Vec<u8>)> = zip_entries
-        .into_iter()
-        .map(|(p, c)| {
-            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) {
-                p[root_prefix.len()..].to_string()
-            } else { p };
-            (stripped, c)
-        })
-        .filter(|(p, _)| !p.is_empty() && !p.starts_with('.') && !p.contains("__MACOSX"))
-        .collect();
-
+    let files_to_upload = parse_zip_entries(&zip_bytes)?;
     let total = files_to_upload.len();
-    if total == 0 {
-        return Err("В ZIP нет подходящих файлов для загрузки".to_string());
-    }
 
     if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
         *pl = Some(UploadProgress {
@@ -1139,53 +1190,8 @@ pub async fn upload_build_from_zip(
     // existing players keep their options.txt / packs / emotes, while fresh
     // installs receive everything.
     let zip_bytes = fs::read(&path).map_err(|e| format!("Не удалось прочитать ZIP: {e}"))?;
-    let cursor = std::io::Cursor::new(&zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
-
-    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
-        if file.is_dir() { continue; }
-        let name = file.name().replace('\\', "/").to_string();
-        let mut content = Vec::new();
-        file.read_to_end(&mut content).map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
-        zip_entries.push((name, content));
-    }
-
-    if zip_entries.is_empty() {
-        return Err("ZIP файл пуст или содержит только папки".to_string());
-    }
-
-    // If the archive wraps everything in a single top-level folder
-    // (e.g. you zipped the `danganverse` folder itself → danganverse/mods/…),
-    // strip that wrapper so paths become mods/…, config/… etc. If the archive
-    // already has multiple top-level entries (mods/, emotes/, options.txt),
-    // nothing is stripped — folders are left untouched.
-    let root_prefix: String = {
-        let first = &zip_entries[0].0;
-        if let Some(pos) = first.find('/') {
-            let candidate = format!("{}/", &first[..pos]);
-            if zip_entries.iter().all(|(p, _)| p.starts_with(&candidate)) { candidate } else { String::new() }
-        } else { String::new() }
-    };
-
-    let files_to_upload: Vec<(String, Vec<u8>)> = zip_entries
-        .into_iter()
-        .map(|(p, c)| {
-            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) {
-                p[root_prefix.len()..].to_string()
-            } else {
-                p
-            };
-            (stripped, c)
-        })
-        .filter(|(p, _)| !p.is_empty() && !p.starts_with('.') && !p.contains("__MACOSX"))
-        .collect();
-
+    let files_to_upload = parse_zip_entries(&zip_bytes)?;
     let total = files_to_upload.len();
-    if total == 0 {
-        return Err("В ZIP нет подходящих файлов для загрузки".to_string());
-    }
 
     if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
         *pl = Some(UploadProgress {

@@ -321,11 +321,12 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
   const uploadModPath = async (path: string) => {
     if (!manifest || !path) return;
     if (!githubToken.trim()) {
-      notify("Введите GitHub token перед загрузкой мода");
+      notify("Введите GitHub token перед загрузкой");
       return;
     }
+    const isZip = path.toLowerCase().endsWith(".zip");
     setUploadingMod(true);
-    notify(`Загружаю мод ${path}...`);
+    notify(isZip ? `Загружаю ZIP ${path}...` : `Загружаю мод ${path}...`);
     try {
 
       const entries = await invoke<BuildFileEntry[]>("upload_build_mod", {
@@ -345,14 +346,14 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
         return { ...prev, mods: [...kept, ...entries] };
       });
       if (repoTree.length > 0) loadRepoTree();
-      if (entries.length === 1) {
+      if (entries.length === 1 && !isZip) {
         notify(`Мод ${entries[0].name} загружен. Нажмите «Сохранить manifest», чтобы он вошёл в сборку.`);
       } else {
-        notify(`ZIP-сборка распакована: ${entries.length} файлов загружено в emotes/, mods/, resourcepacks/ и т.д. Нажмите «Сохранить manifest».`);
+        notify(`ZIP распакован: ${entries.length} файлов загружено в emotes/, mods/, resourcepacks/ и т.д. Нажмите «Сохранить manifest».`);
       }
 
     } catch (e) {
-      notify(`Не удалось загрузить мод: ${String(e)}`);
+      notify(`Не удалось загрузить файл: ${String(e)}`);
     } finally {
       setUploadingMod(false);
     }
