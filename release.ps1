@@ -78,8 +78,10 @@ if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (main)" }
 git push origin "refs/tags/$TAG"
 if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (tag $TAG)" }
 
-# В релиз грузим ТОЛЬКО stub (DanganVerse-Launcher.exe), NSIS-инсталлятор не нужен.
-$releaseFiles = @((Resolve-Path $stubExe).Path)
+# В релиз грузим И NSIS-инсталлятор, И stub.
+# NSIS НУЖЕН: updater.rs и stub-rs/main.rs оба ищут *_x64-setup.exe в релизе для
+# автообновления и для установки с нуля. Без NSIS обновления ломаются.
+$releaseFiles = @($nsisFiles[0].FullName, (Resolve-Path $stubExe).Path)
 gh release create $TAG `
     --title "DanganVerse Launcher $TAG" `
     --notes "Обновление лаунчера до версии $TAG" `
