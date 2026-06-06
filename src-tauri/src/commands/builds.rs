@@ -752,8 +752,47 @@ fn zip_directory(dir: &Path) -> Result<Vec<u8>, String> {
     Ok(buffer)
 }
 
+// Top-level folders that mark a ZIP as a "build archive" — when present at
+// the root (or after a single wrapper folder), the archive is extracted and
+// every file goes to its proper path instead of being dumped as one blob.
+const BUILD_CATEGORY_DIRS: &[&str] = &[
+    "mods", "config", "resourcepacks", "shaderpacks", "schematics", "emotes",
+];
+
+fn detect_build_archive(archive: &mut zip::ZipArchive<std::io::Cursor<&Vec<u8>>>) -> bool {
+    let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for i in 0..archive.len() {
+        if let Ok(file) = archive.by_index(i) {
+            let name = file.name().replace('\\', "/");
+            if let Some(pos) = name.find('/') {
+                top_dirs.insert(name[..pos].to_lowercase());
+            }
+        }
+    }
+    // Strip a single wrapper folder if all entries share it (zip of "danganverse/")
+    if top_dirs.len() == 1 {
+        let wrapper = top_dirs.iter().next().unwrap().clone();
+        let mut inner: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let prefix = format!("{}/", wrapper);
+        for i in 0..archive.len() {
+            if let Ok(file) = archive.by_index(i) {
+                let name = file.name().replace('\\', "/");
+                if let Some(rest) = name.strip_prefix(&prefix) {
+                    if let Some(pos) = rest.find('/') {
+                        inner.insert(rest[..pos].to_lowercase());
+                    }
+                }
+            }
+        }
+        if inner.iter().any(|d| BUILD_CATEGORY_DIRS.contains(&d.as_str())) {
+            return true;
+        }
+    }
+    top_dirs.iter().any(|d| BUILD_CATEGORY_DIRS.contains(&d.as_str()))
+}
+
 #[tauri::command]
-pub async fn upload_build_mod(build: String, github_token: String, file_path: String, target_name: Option<String>) -> Result<BuildFileEntry, String> {
+pub async fn upload_build_mod(build: String, github_token: String, file_path: String, target_name: Option<String>) -> Result<Vec<BuildFileEntry>, String> {
     let repo = repo_for_build(&build)?;
     let token = github_token.trim();
     let path = PathBuf::from(&file_path);
@@ -766,12 +805,12 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
     if token.is_empty() {
         return Err("GitHub токен не задан. Сохраните токен в админ-панели перед загрузкой.".to_string());
     }
-    
+
     let is_dir = path.is_dir();
     let mut file_name = target_name
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| path.file_name().unwrap_or_default().to_string_lossy().to_string());
-        
+
     let bytes = if is_dir {
         if !file_name.ends_with(".zip") {
             file_name = format!("{}.zip", file_name);
@@ -780,7 +819,19 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
     } else {
         fs::read(&path).map_err(|e| format!("Не удалось прочитать файл: {e}"))?
     };
-    
+
+    // If this ZIP looks like a build archive (contains mods/, emotes/, etc.
+    // at the root), extract it and upload every file at its proper path
+    // instead of dumping the whole zip into mods/.
+    if file_name.ends_with(".zip") {
+        if let Ok(mut probe) = zip::ZipArchive::new(std::io::Cursor::new(&bytes)) {
+            if detect_build_archive(&mut probe) {
+                launcher_log(&format!("[builds] {} detected as build archive — extracting", file_name));
+                return upload_build_zip_contents(repo, token, bytes).await;
+            }
+        }
+    }
+
     let mut folder = "mods";
     if file_name.ends_with(".zip") {
         if is_dir {
@@ -805,7 +856,7 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
             }
         }
     }
-    
+
     let size = bytes.len() as u64;
     let mut h = Sha1::new();
     h.update(&bytes);
@@ -815,14 +866,103 @@ pub async fn upload_build_mod(build: String, github_token: String, file_path: St
     let client = github_upload_client()?;
     let url = upload_file_smart(&client, token, repo, &remote_path, bytes).await?;
 
-    Ok(BuildFileEntry {
+    Ok(vec![BuildFileEntry {
         name: file_name.clone(),
         path: remote_path.clone(),
         url,
         sha1,
         size,
         enabled: true,
-    })
+    }])
+}
+
+async fn upload_build_zip_contents(repo: &str, token: &str, zip_bytes: Vec<u8>) -> Result<Vec<BuildFileEntry>, String> {
+    let cursor = std::io::Cursor::new(&zip_bytes);
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Не удалось открыть ZIP: {e}"))?;
+
+    let mut zip_entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).map_err(|e| format!("ZIP ошибка [{i}]: {e}"))?;
+        if file.is_dir() { continue; }
+        let name = file.name().replace('\\', "/").to_string();
+        let mut content = Vec::new();
+        file.read_to_end(&mut content).map_err(|e| format!("Ошибка чтения {}: {e}", file.name()))?;
+        zip_entries.push((name, content));
+    }
+
+    if zip_entries.is_empty() {
+        return Err("ZIP файл пуст или содержит только папки".to_string());
+    }
+
+    // Strip a single wrapper folder if every entry shares it.
+    let root_prefix: String = {
+        let first = &zip_entries[0].0;
+        if let Some(pos) = first.find('/') {
+            let candidate = format!("{}/", &first[..pos]);
+            if zip_entries.iter().all(|(p, _)| p.starts_with(&candidate)) { candidate } else { String::new() }
+        } else { String::new() }
+    };
+
+    let files_to_upload: Vec<(String, Vec<u8>)> = zip_entries
+        .into_iter()
+        .map(|(p, c)| {
+            let stripped = if !root_prefix.is_empty() && p.starts_with(&root_prefix) {
+                p[root_prefix.len()..].to_string()
+            } else { p };
+            (stripped, c)
+        })
+        .filter(|(p, _)| !p.is_empty() && !p.starts_with('.') && !p.contains("__MACOSX"))
+        .collect();
+
+    let total = files_to_upload.len();
+    if total == 0 {
+        return Err("В ZIP нет подходящих файлов для загрузки".to_string());
+    }
+
+    if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+        *pl = Some(UploadProgress {
+            done: 0,
+            total,
+            current: "Распаковка ZIP и загрузка файлов...".to_string(),
+            errors: vec![],
+            finished: false,
+        });
+    }
+
+    let client = github_upload_client()?;
+    let mut entries: Vec<BuildFileEntry> = Vec::new();
+    for (i, (rel_path, content)) in files_to_upload.into_iter().enumerate() {
+        if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+            if let Some(ref mut prog) = *pl { prog.done = i; prog.current = rel_path.clone(); }
+        }
+        let size = content.len() as u64;
+        let mut h = Sha1::new();
+        h.update(&content);
+        let sha1 = format!("{:x}", h.finalize());
+
+        match upload_file_smart(&client, token, repo, &rel_path, content).await {
+            Ok(url) => {
+                let name = rel_path.rsplit('/').next().unwrap_or(&rel_path).to_string();
+                entries.push(BuildFileEntry { name, path: rel_path.clone(), url, sha1, size, enabled: true });
+            }
+            Err(e) => {
+                if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+                    if let Some(ref mut prog) = *pl { prog.errors.push(format!("{rel_path}: {e}")); }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut pl) = UPLOAD_PROGRESS.lock() {
+        if let Some(ref mut prog) = *pl {
+            prog.done = total;
+            prog.current = format!("Готово! Загружено файлов: {} из {total}", entries.len());
+            prog.finished = true;
+        }
+    }
+
+    launcher_log(&format!("[builds] ZIP extracted via upload_build_mod: {} files → {repo}", entries.len()));
+    Ok(entries)
 }
 
 #[tauri::command]

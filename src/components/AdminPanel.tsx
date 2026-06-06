@@ -328,18 +328,28 @@ export default function AdminPanel({ username, isOwner, onDiscordUrlChange }: Pr
     notify(`Загружаю мод ${path}...`);
     try {
 
-      const entry = await invoke<BuildFileEntry>("upload_build_mod", {
+      const entries = await invoke<BuildFileEntry[]>("upload_build_mod", {
         build: activeBuild,
         githubToken,
         filePath: path,
         targetName: null,
       });
-      setManifest(prev => prev ? {
-        ...prev,
-        mods: [...prev.mods.filter(m => m.name !== entry.name), entry],
-      } : prev);
+      if (entries.length === 0) {
+        notify("Не удалось загрузить файл: пустой результат");
+        return;
+      }
+      setManifest(prev => {
+        if (!prev) return prev;
+        const newPaths = new Set(entries.map(e => e.path));
+        const kept = prev.mods.filter(m => !newPaths.has(m.path));
+        return { ...prev, mods: [...kept, ...entries] };
+      });
       if (repoTree.length > 0) loadRepoTree();
-      notify(`Мод ${entry.name} загружен. Нажмите «Сохранить manifest», чтобы он вошёл в сборку.`);
+      if (entries.length === 1) {
+        notify(`Мод ${entries[0].name} загружен. Нажмите «Сохранить manifest», чтобы он вошёл в сборку.`);
+      } else {
+        notify(`ZIP-сборка распакована: ${entries.length} файлов загружено в emotes/, mods/, resourcepacks/ и т.д. Нажмите «Сохранить manifest».`);
+      }
 
     } catch (e) {
       notify(`Не удалось загрузить мод: ${String(e)}`);

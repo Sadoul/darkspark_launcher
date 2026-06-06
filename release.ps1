@@ -69,7 +69,7 @@ Write-Host "[4/4] Публикация релиза $TAG на GitHub..." -Foregr
 $staged = git status --porcelain
 if ($staged) {
     git add src-tauri/icons/ src-tauri/src/ src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json src/ stub-rs/ release.ps1
-    git commit -m "Прогресс и стрим для больших модов"
+    git commit -m "релиз $VERSION"
 }
 
 git tag $TAG
@@ -78,7 +78,8 @@ if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (main)" }
 git push origin "refs/tags/$TAG"
 if ($LASTEXITCODE -ne 0) { throw "Ошибка git push (tag $TAG)" }
 
-$releaseFiles = @($nsisFiles[0].FullName, (Resolve-Path $stubExe).Path)
+# В релиз грузим ТОЛЬКО stub (DanganVerse-Launcher.exe), NSIS-инсталлятор не нужен.
+$releaseFiles = @((Resolve-Path $stubExe).Path)
 gh release create $TAG `
     --title "DanganVerse Launcher $TAG" `
     --notes "Обновление лаунчера до версии $TAG" `
